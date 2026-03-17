@@ -1,0 +1,44 @@
+site_name: openvox-code
+site_description: Fast, Git-native Puppet environment deployment tool written in Go
+site_url: https://slauger.github.io/openvox-code
+repo_url: https://github.com/slauger/openvox-code
+repo_name: slauger/openvox-code
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - content.code.copy
+  palette:
+    - scheme: default
+      primary: deep orange
+      accent: orange
+
+markdown_extensions:
+  - admonition
+  - pymdownx.highlight
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed
+  - tables
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Concepts:
+    - Architecture: concepts/architecture.md
+    - Configuration Format: concepts/configuration.md
+    - Environment Management: concepts/environments.md
+    - Module Caching: concepts/caching.md
+    - Kubernetes Integration: concepts/kubernetes-integration.md
+  - Reference:
+    - CLI: reference/cli.md
+    - Configuration: reference/configuration.md
+  - Roadmap: roadmap.md
