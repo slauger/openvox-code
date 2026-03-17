@@ -211,6 +211,37 @@ modules:
     ref: v12.0.0
 ```
 
+## Splitting Configuration with Includes
+
+As configurations grow, a single `openvox-code.yaml` can become hard to manage. The `includes` field lets you split your configuration across multiple files:
+
+```yaml
+cachedir: /var/cache/openvox-code
+environmentdir: /etc/puppetlabs/code/environments
+
+includes:
+  - modulesets/*.yaml
+  - environments/*.yaml
+```
+
+This is useful for:
+
+- **Team ownership**: Each team maintains their own moduleset or environment file.
+- **Reusability**: Share common modulesets across projects by including a shared file.
+- **Separation of concerns**: Keep base config, module definitions, and environment declarations in separate files.
+
+### Merge Behavior
+
+Included files are deep-merged into the main configuration in order:
+
+- **Maps** (like `modulesets`, `environments`) are merged recursively. Keys from different files are combined; on conflict, later files win.
+- **Lists** (like `sources`) are concatenated.
+- **Scalars** (like `cachedir`, `offline`) from later files override earlier values.
+
+Glob patterns are expanded in alphabetical order. Paths are relative to the main config file's directory. Recursive includes (includes within included files) are not supported.
+
+See the [Configuration Reference](../reference/configuration.md#includes) for the full field specification.
+
 ## Static vs Dynamic Environments
 
 You can use `sources` (dynamic, branch-discovered) and `environments` (static, explicitly declared) together. Explicitly declared environments take precedence when there is a naming conflict.

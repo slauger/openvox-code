@@ -5,6 +5,10 @@ Complete reference for the `openvox-code.yaml` configuration file.
 ## Schema
 
 ```yaml
+# Optional: Include additional configuration files
+includes:
+  - string               # File path or glob pattern
+
 # Required: Directory for bare clone caches
 cachedir: string
 
@@ -48,6 +52,34 @@ oci:
 ```
 
 ## Field Reference
+
+### `includes`
+
+| | |
+|---|---|
+| Type | `list[string]` |
+| Required | No |
+| Default | `[]` |
+
+List of file paths or glob patterns pointing to additional YAML configuration files. Included files are processed in order and deep-merged into the main configuration.
+
+**Merge behavior:**
+
+- Maps are merged recursively (e.g., `modulesets` from multiple files are combined).
+- Lists are concatenated.
+- Scalar values from later files override earlier ones.
+- The main `openvox-code.yaml` serves as the base; included files are merged on top in the order specified.
+
+Paths are relative to the directory containing the main configuration file. Glob patterns follow standard shell glob syntax.
+
+```yaml
+includes:
+  - modulesets/*.yaml
+  - environments/production.yaml
+  - /etc/openvox-code/overrides.yaml
+```
+
+Included files can contain any valid top-level configuration fields (`cachedir`, `modulesets`, `environments`, etc.) but **cannot** contain `includes` themselves (no recursive includes).
 
 ### `cachedir`
 
@@ -328,4 +360,51 @@ sources:
 oci:
   registry: ghcr.io/example/puppet-environments
   tag: latest
+```
+
+### Split Configuration with Includes
+
+Main file `openvox-code.yaml`:
+
+```yaml
+cachedir: /var/cache/openvox-code
+environmentdir: /etc/puppetlabs/code/environments
+
+includes:
+  - modulesets/*.yaml
+  - environments/*.yaml
+```
+
+`modulesets/base.yaml`:
+
+```yaml
+modulesets:
+  base:
+    - name: stdlib
+      git: https://github.com/puppetlabs/puppetlabs-stdlib.git
+      ref: v9.0.0
+    - name: concat
+      git: https://github.com/puppetlabs/puppetlabs-concat.git
+      ref: v9.0.0
+```
+
+`modulesets/webservers.yaml`:
+
+```yaml
+modulesets:
+  webservers:
+    - name: apache
+      git: https://github.com/puppetlabs/puppetlabs-apache.git
+      ref: v12.0.0
+```
+
+`environments/production.yaml`:
+
+```yaml
+environments:
+  production:
+    ref: v1.5.0
+    modulesets:
+      - base
+      - webservers
 ```
