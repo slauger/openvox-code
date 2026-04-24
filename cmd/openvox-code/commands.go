@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"os"
 
+	"github.com/slauger/openvox-code/internal/builder"
 	"github.com/slauger/openvox-code/internal/cache"
 	"github.com/slauger/openvox-code/internal/config"
 	"github.com/slauger/openvox-code/internal/deployer"
@@ -249,7 +250,51 @@ var buildCmd = &cobra.Command{
 	Short: "Build OCI container image",
 	Long:  "Build an OCI container image containing the deployed environments.",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return fmt.Errorf("build command not yet implemented (planned for v0.3)")
+		log := setupLogger()
+		cfg, err := loadConfig()
+		if err != nil {
+			return err
+		}
+
+		tag, _ := cmd.Flags().GetString("tag")
+		registry, _ := cmd.Flags().GetString("registry")
+		push, _ := cmd.Flags().GetBool("push")
+
+		if registry == "" && cfg.OCI != nil {
+			registry = cfg.OCI.Registry
+		}
+		if tag == "" {
+			if cfg.OCI != nil && cfg.OCI.Tag != "" {
+				tag = cfg.OCI.Tag
+			} else {
+				tag = "latest"
+			}
+		}
+
+		if push && registry == "" {
+			return fmt.Errorf("--registry or oci.registry in config is required for push")
+		}
+
+		b := builder.New(log)
+		img, err := b.Build(builder.Options{
+			EnvironmentDir: cfg.EnvironmentDir,
+			Registry:       registry,
+			Tag:            tag,
+			Push:           push,
+		})
+		if err != nil {
+			return fmt.Errorf("building image: %w", err)
+		}
+
+		if !push {
+			outPath := "openvox-code.tar"
+			if err := b.Save(img, outPath); err != nil {
+				return fmt.Errorf("saving image: %w", err)
+			}
+			log.Info("image saved locally", "path", outPath)
+		}
+
+		return nil
 	},
 }
 
