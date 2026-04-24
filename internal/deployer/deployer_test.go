@@ -210,6 +210,68 @@ func TestListExistingEnvironments(t *testing.T) {
 	}
 }
 
+func TestChangeStringUnknownType(t *testing.T) {
+	c := Change{Type: "unknown", Environment: "prod", Module: "mod"}
+	got := c.String()
+	if got != "? prod/mod" {
+		t.Errorf("String() = %q, want %q", got, "? prod/mod")
+	}
+}
+
+func TestDiffSourceDiscoverySkipped(t *testing.T) {
+	dir := t.TempDir()
+	d := New(dir, nil, testLogger())
+
+	envs := []resolver.ResolvedEnvironment{
+		{Name: "__source_discovery__", Ref: "__all__"},
+	}
+
+	changes, err := d.Diff(envs)
+	if err != nil {
+		t.Fatalf("Diff() error = %v", err)
+	}
+	if len(changes) != 0 {
+		t.Errorf("expected no changes for source discovery, got %d", len(changes))
+	}
+}
+
+func TestListExistingModulesEmpty(t *testing.T) {
+	d := New("/nonexistent", nil, testLogger())
+	mods, err := d.listExistingModules("nonexistent-env")
+	if err != nil {
+		t.Fatalf("error = %v", err)
+	}
+	if mods != nil {
+		t.Errorf("expected nil for nonexistent env, got %v", mods)
+	}
+}
+
+func TestListExistingModules(t *testing.T) {
+	dir := t.TempDir()
+	modulesDir := filepath.Join(dir, "prod", "modules")
+	for _, mod := range []string{"stdlib", "apache"} {
+		if err := os.MkdirAll(filepath.Join(modulesDir, mod), 0o750); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Also create a file (should be ignored)
+	if err := os.WriteFile(filepath.Join(modulesDir, "README"), []byte("ignore"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	d := New(dir, nil, testLogger())
+	mods, err := d.listExistingModules("prod")
+	if err != nil {
+		t.Fatalf("error = %v", err)
+	}
+	if len(mods) != 2 {
+		t.Errorf("got %d modules, want 2", len(mods))
+	}
+	if !mods["stdlib"] || !mods["apache"] {
+		t.Errorf("modules = %v, want stdlib and apache", mods)
+	}
+}
+
 func TestListExistingEnvironmentsEmpty(t *testing.T) {
 	d := New("/nonexistent/path", nil, testLogger())
 	envs, err := d.listExistingEnvironments()
