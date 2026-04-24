@@ -7,8 +7,10 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/slauger/openvox-code/internal/cache"
 	"github.com/slauger/openvox-code/internal/config"
@@ -46,17 +48,22 @@ func (c Change) String() string {
 
 // Deployer handles atomic deployment of environments to disk.
 type Deployer struct {
-	envDir string
-	cache  *cache.Manager
-	log    *slog.Logger
+	envDir   string
+	cache    *cache.Manager
+	parallel int
+	log      *slog.Logger
 }
 
 // New creates a new Deployer.
-func New(envDir string, cm *cache.Manager, log *slog.Logger) *Deployer {
+func New(envDir string, cm *cache.Manager, parallel int, log *slog.Logger) *Deployer {
+	if parallel < 1 {
+		parallel = runtime.NumCPU()
+	}
 	return &Deployer{
-		envDir: envDir,
-		cache:  cm,
-		log:    log,
+		envDir:   envDir,
+		cache:    cm,
+		parallel: parallel,
+		log:      log,
 	}
 }
 
@@ -200,32 +207,55 @@ func (d *Deployer) deployEnvironment(ctx context.Context, env *resolver.Resolved
 		}
 	}
 
-	// Step 3: Deploy each module into its target directory
+	// Step 3: Create all target directories first (must be sequential for mkdir)
 	for i := range modules {
-		mod := &modules[i]
-		modDir := filepath.Join(tmpPath, mod.InstallPath())
-
+		modDir := filepath.Join(tmpPath, modules[i].InstallPath())
 		if err := os.MkdirAll(filepath.Dir(modDir), 0o750); err != nil {
 			cleanup()
-			return fmt.Errorf("creating parent dir for module %q: %w", mod.Name, err)
+			return fmt.Errorf("creating parent dir for module %q: %w", modules[i].Name, err)
 		}
+	}
 
-		// Ensure the module repo is cached (may not be if discovered via modules.yaml)
-		if err := d.cache.EnsureClone(ctx, mod.GitURL); err != nil {
-			cleanup()
-			return fmt.Errorf("fetching module %q from %s: %w", mod.Name, mod.GitURL, err)
-		}
+	// Step 4: Deploy modules in parallel
+	var (
+		wg      sync.WaitGroup
+		errChan = make(chan error, len(modules))
+		sem     = make(chan struct{}, d.parallel)
+	)
 
-		ref := mod.SHA
-		if ref == "" {
-			ref = mod.Ref
-		}
+	for i := range modules {
+		mod := &modules[i]
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
 
-		d.log.Debug("deploying module", "env", env.Name, "module", mod.Name, "ref", ref, "path", mod.InstallPath())
-		if err := d.cache.Checkout(ctx, mod.GitURL, ref, modDir); err != nil {
-			cleanup()
-			return fmt.Errorf("checking out module %q: %w", mod.Name, err)
-		}
+			// Ensure the module repo is cached (may not be if discovered via modules.yaml)
+			if err := d.cache.EnsureClone(ctx, mod.GitURL); err != nil {
+				errChan <- fmt.Errorf("fetching module %q from %s: %w", mod.Name, mod.GitURL, err)
+				return
+			}
+
+			ref := mod.SHA
+			if ref == "" {
+				ref = mod.Ref
+			}
+
+			modDir := filepath.Join(tmpPath, mod.InstallPath())
+			d.log.Debug("deploying module", "env", env.Name, "module", mod.Name, "ref", ref, "path", mod.InstallPath())
+			if err := d.cache.Checkout(ctx, mod.GitURL, ref, modDir); err != nil {
+				errChan <- fmt.Errorf("checking out module %q: %w", mod.Name, err)
+			}
+		}()
+	}
+
+	wg.Wait()
+	close(errChan)
+
+	for err := range errChan {
+		cleanup()
+		return err
 	}
 
 	// Atomic swap

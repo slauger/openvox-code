@@ -93,7 +93,7 @@ func TestDeployAllIntegration(t *testing.T) {
 		},
 	}
 
-	d := New(envDir, cm, log)
+	d := New(envDir, cm, 4, log)
 
 	if err := d.DeployAll(ctx, envs, false); err != nil {
 		t.Fatalf("DeployAll error = %v", err)
@@ -167,7 +167,7 @@ func TestDeployAllWithClean(t *testing.T) {
 		},
 	}
 
-	d := New(envDir, cm, log)
+	d := New(envDir, cm, 4, log)
 	if err := d.DeployAll(ctx, envs, true); err != nil {
 		t.Fatalf("DeployAll error = %v", err)
 	}
@@ -227,7 +227,7 @@ func TestDeployAtomicity(t *testing.T) {
 		},
 	}
 
-	d := New(envDir, cm, log)
+	d := New(envDir, cm, 4, log)
 	if err := d.DeployAll(ctx, envs, false); err != nil {
 		t.Fatalf("DeployAll error = %v", err)
 	}

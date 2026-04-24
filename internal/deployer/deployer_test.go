@@ -58,7 +58,7 @@ func TestChangeString(t *testing.T) {
 
 func TestDiffNewEnvironment(t *testing.T) {
 	dir := t.TempDir()
-	d := New(dir, nil, testLogger())
+	d := New(dir, nil, 4, testLogger())
 
 	envs := []resolver.ResolvedEnvironment{
 		{
@@ -92,7 +92,7 @@ func TestDiffRemoveEnvironment(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	d := New(dir, nil, testLogger())
+	d := New(dir, nil, 4, testLogger())
 
 	// No environments expected
 	changes, err := d.Diff(nil)
@@ -117,7 +117,7 @@ func TestDiffRemoveModule(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	d := New(dir, nil, testLogger())
+	d := New(dir, nil, 4, testLogger())
 
 	envs := []resolver.ResolvedEnvironment{
 		{
@@ -163,7 +163,7 @@ func TestCleanStale(t *testing.T) {
 		}
 	}
 
-	d := New(dir, nil, testLogger())
+	d := New(dir, nil, 4, testLogger())
 
 	deployed := map[string]bool{"keep": true}
 	if err := d.cleanStale(deployed); err != nil {
@@ -196,7 +196,7 @@ func TestListExistingEnvironments(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	d := New(dir, nil, testLogger())
+	d := New(dir, nil, 4, testLogger())
 	envs, err := d.listExistingEnvironments()
 	if err != nil {
 		t.Fatalf("listExistingEnvironments() error = %v", err)
@@ -220,7 +220,7 @@ func TestChangeStringUnknownType(t *testing.T) {
 
 func TestDiffSourceDiscoverySkipped(t *testing.T) {
 	dir := t.TempDir()
-	d := New(dir, nil, testLogger())
+	d := New(dir, nil, 4, testLogger())
 
 	envs := []resolver.ResolvedEnvironment{
 		{Name: "__source_discovery__", Ref: "__all__"},
@@ -236,7 +236,7 @@ func TestDiffSourceDiscoverySkipped(t *testing.T) {
 }
 
 func TestListExistingModulesEmpty(t *testing.T) {
-	d := New("/nonexistent", nil, testLogger())
+	d := New("/nonexistent", nil, 4, testLogger())
 	mods, err := d.listExistingModules("nonexistent-env")
 	if err != nil {
 		t.Fatalf("error = %v", err)
@@ -259,7 +259,7 @@ func TestListExistingModules(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	d := New(dir, nil, testLogger())
+	d := New(dir, nil, 4, testLogger())
 	mods, err := d.listExistingModules("prod")
 	if err != nil {
 		t.Fatalf("error = %v", err)
@@ -273,7 +273,7 @@ func TestListExistingModules(t *testing.T) {
 }
 
 func TestListExistingEnvironmentsEmpty(t *testing.T) {
-	d := New("/nonexistent/path", nil, testLogger())
+	d := New("/nonexistent/path", nil, 4, testLogger())
 	envs, err := d.listExistingEnvironments()
 	if err != nil {
 		t.Fatalf("listExistingEnvironments() error = %v", err)

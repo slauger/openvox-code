@@ -97,7 +97,7 @@ var syncCmd = &cobra.Command{
 
 		ctx := cmd.Context()
 		cm := newCacheManager(cfg, log)
-		d := deployer.New(cfg.EnvironmentDir, cm, log)
+		d := deployer.New(cfg.EnvironmentDir, cm, parallel, log)
 
 		if cfg.Offline {
 			return fmt.Errorf("sync requires network access; use 'deploy' in offline mode")
@@ -120,6 +120,12 @@ var syncCmd = &cobra.Command{
 		resolved, err = r.ExpandDiscovery(ctx, resolved, cm)
 		if err != nil {
 			return fmt.Errorf("expanding branch discovery: %w", err)
+		}
+
+		envFilter, _ := cmd.Flags().GetStringSlice("environment")
+		if len(envFilter) > 0 {
+			resolved = filterEnvironments(resolved, envFilter)
+			log.Info("filtered environments", "count", len(resolved), "filter", envFilter)
 		}
 
 		log.Info("starting deploy phase")
@@ -180,7 +186,7 @@ var deployCmd = &cobra.Command{
 
 		ctx := cmd.Context()
 		cm := newCacheManager(cfg, log)
-		d := deployer.New(cfg.EnvironmentDir, cm, log)
+		d := deployer.New(cfg.EnvironmentDir, cm, parallel, log)
 
 		var resolved []resolver.ResolvedEnvironment
 
@@ -196,6 +202,12 @@ var deployCmd = &cobra.Command{
 			if err != nil {
 				return fmt.Errorf("resolving environments: %w", err)
 			}
+		}
+
+		envFilter, _ := cmd.Flags().GetStringSlice("environment")
+		if len(envFilter) > 0 {
+			resolved = filterEnvironments(resolved, envFilter)
+			log.Info("filtered environments", "count", len(resolved), "filter", envFilter)
 		}
 
 		clean, _ := cmd.Flags().GetBool("clean")
@@ -220,7 +232,7 @@ var diffCmd = &cobra.Command{
 		}
 
 		r := resolver.New(cfg, log)
-		d := deployer.New(cfg.EnvironmentDir, nil, log)
+		d := deployer.New(cfg.EnvironmentDir, nil, parallel, log)
 
 		resolved, err := r.Resolve()
 		if err != nil {
@@ -409,9 +421,30 @@ var lockCmd = &cobra.Command{
 	},
 }
 
+// filterEnvironments returns only the environments matching the given names.
+// If names is empty, all environments are returned.
+func filterEnvironments(envs []resolver.ResolvedEnvironment, names []string) []resolver.ResolvedEnvironment {
+	if len(names) == 0 {
+		return envs
+	}
+	allowed := make(map[string]bool, len(names))
+	for _, n := range names {
+		allowed[n] = true
+	}
+	filtered := make([]resolver.ResolvedEnvironment, 0, len(names))
+	for _, env := range envs {
+		if allowed[env.Name] {
+			filtered = append(filtered, env)
+		}
+	}
+	return filtered
+}
+
 func init() {
 	syncCmd.Flags().Bool("clean", false, "remove environments not in config")
+	syncCmd.Flags().StringSlice("environment", nil, "only sync specific environments (can be repeated)")
 	deployCmd.Flags().Bool("clean", false, "remove environments not in config")
+	deployCmd.Flags().StringSlice("environment", nil, "only deploy specific environments (can be repeated)")
 	validateCmd.Flags().Bool("offline", false, "skip network checks, validate syntax only")
 	buildCmd.Flags().String("tag", "", "image tag")
 	buildCmd.Flags().String("registry", "", "override OCI registry URL")
