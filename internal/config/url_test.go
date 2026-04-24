@@ -46,3 +46,68 @@ func TestRewriteGitURL(t *testing.T) {
 		})
 	}
 }
+
+func TestHostMatches(t *testing.T) {
+	tests := []struct {
+		name   string
+		gitURL string
+		host   string
+		want   bool
+	}{
+		{name: "HTTPS match", gitURL: "https://github.com/owner/repo.git", host: "github.com", want: true},
+		{name: "HTTPS no match", gitURL: "https://github.com/owner/repo.git", host: "gitlab.com", want: false},
+		{name: "SSH match", gitURL: "git@github.com:owner/repo.git", host: "github.com", want: true},
+		{name: "SSH no match", gitURL: "git@github.com:owner/repo.git", host: "gitlab.com", want: false},
+		{name: "HTTPS with port", gitURL: "https://git.example.com:8443/repo.git", host: "git.example.com", want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := hostMatches(tt.gitURL, tt.host)
+			if got != tt.want {
+				t.Errorf("hostMatches(%q, %q) = %v, want %v", tt.gitURL, tt.host, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestResolveGitURLWithMirrorMap(t *testing.T) {
+	cfg := &Config{
+		Overrides: Overrides{
+			GitMirrors: map[string]string{
+				"github.com": "https://github-mirror.internal",
+				"gitlab.com": "https://gitlab-mirror.internal",
+			},
+			GitMirror: "https://fallback-mirror.internal",
+		},
+	}
+
+	tests := []struct {
+		name string
+		url  string
+		want string
+	}{
+		{
+			name: "github matched by mirror map",
+			url:  "https://github.com/puppetlabs/stdlib.git",
+			want: "https://github-mirror.internal/puppetlabs/stdlib.git",
+		},
+		{
+			name: "gitlab matched by mirror map",
+			url:  "https://gitlab.com/org/module.git",
+			want: "https://gitlab-mirror.internal/org/module.git",
+		},
+		{
+			name: "unknown host falls back to global mirror",
+			url:  "https://bitbucket.org/team/repo.git",
+			want: "https://fallback-mirror.internal/team/repo.git",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := cfg.ResolveGitURL(tt.url)
+			if got != tt.want {
+				t.Errorf("ResolveGitURL(%q) = %q, want %q", tt.url, got, tt.want)
+			}
+		})
+	}
+}

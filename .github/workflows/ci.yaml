@@ -85,7 +85,7 @@ jobs:
         run: go test ./... -coverprofile cover.out -race
 
       - name: Upload coverage
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: coverage
           path: cover.out
@@ -117,7 +117,7 @@ jobs:
         run: go build -ldflags="-s -w" -o bin/openvox-code-${{ matrix.goos }}-${{ matrix.goarch }} ./cmd/openvox-code
 
       - name: Upload binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: openvox-code-${{ matrix.goos }}-${{ matrix.goarch }}
           path: bin/

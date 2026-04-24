@@ -4,13 +4,10 @@
 # Required: directory for bare clone Git caches
 cachedir: /var/cache/openvox-code
 
-# Required: target directory for deployed Puppet environments
-environmentdir: /etc/puppetlabs/code/environments
-
-# Optional: include additional configuration files (supports globs, no recursive includes)
-# includes:
-#   - modulesets/*.yaml
-#   - environments/production.yaml
+# Required: staging directory for Puppet environments
+# For OCI workflow (recommended): use a temp directory, environments are packaged into an image
+# For legacy workflow (like r10k): use /etc/puppetlabs/code/environments
+environmentdir: /tmp/openvox-code/environments
 
 # Optional: control repository sources for branch-based environment discovery
 # Each branch becomes a Puppet environment automatically.
@@ -60,14 +57,24 @@ environments:
         git: https://github.com/puppetlabs/puppetlabs-apache.git
         ref: main  # use latest on staging
 
-# Optional: global overrides
+# Optional: Git authentication
+# git:
+#   ssh_key: /path/to/id_ed25519
+#   ssh_known_hosts: /path/to/known_hosts
+#   credential_helper: store  # or: cache, /path/to/helper
+
+# Optional: host-specific Git mirrors (checked before global fallback)
 # overrides:
-#   gitmirror: https://git-mirror.internal.example.com
+#   gitmirrors:
+#     github.com: https://github-mirror.internal.example.com
+#     gitlab.com: https://gitlab-mirror.internal.example.com
+#   gitmirror: https://fallback-mirror.internal.example.com  # global fallback
 
 # Optional: skip network operations (deploy from cache only)
 # offline: true
 
-# Optional: OCI image configuration (for use with openvox-operator)
+# Optional: OCI image output (for use with openvox-operator)
 # oci:
 #   registry: ghcr.io/example/puppet-environments
 #   tag: latest
+#   auth_config: /path/to/docker/config.json  # or use $DOCKER_CONFIG

@@ -19,6 +19,7 @@ type Config struct {
 	ModuleSets     map[string][]Module     `yaml:"modulesets,omitempty"`
 	Environments   map[string]*Environment `yaml:"environments,omitempty"`
 	Overrides      Overrides               `yaml:"overrides,omitempty"`
+	Git            GitConfig               `yaml:"git,omitempty"`
 	Offline        bool                    `yaml:"offline,omitempty"`
 	OCI            *OCIConfig              `yaml:"oci,omitempty"`
 }
@@ -73,13 +74,22 @@ type Environment struct {
 
 // Overrides contains global override settings.
 type Overrides struct {
-	GitMirror string `yaml:"gitmirror,omitempty"`
+	GitMirror  string            `yaml:"gitmirror,omitempty"`
+	GitMirrors map[string]string `yaml:"gitmirrors,omitempty"`
+}
+
+// GitConfig holds Git authentication settings.
+type GitConfig struct {
+	SSHKeyPath       string `yaml:"ssh_key,omitempty"`
+	SSHKnownHosts    string `yaml:"ssh_known_hosts,omitempty"`
+	CredentialHelper string `yaml:"credential_helper,omitempty"`
 }
 
 // OCIConfig holds OCI image output configuration.
 type OCIConfig struct {
-	Registry string `yaml:"registry"`
-	Tag      string `yaml:"tag,omitempty"`
+	Registry   string `yaml:"registry"`
+	Tag        string `yaml:"tag,omitempty"`
+	AuthConfig string `yaml:"auth_config,omitempty"`
 }
 
 // Load reads and parses the configuration file, processing includes.
@@ -150,6 +160,23 @@ func (c *Config) merge(other *Config) {
 	}
 	if other.Overrides.GitMirror != "" {
 		c.Overrides.GitMirror = other.Overrides.GitMirror
+	}
+	if len(other.Overrides.GitMirrors) > 0 {
+		if c.Overrides.GitMirrors == nil {
+			c.Overrides.GitMirrors = make(map[string]string)
+		}
+		for k, v := range other.Overrides.GitMirrors {
+			c.Overrides.GitMirrors[k] = v
+		}
+	}
+	if other.Git.SSHKeyPath != "" {
+		c.Git.SSHKeyPath = other.Git.SSHKeyPath
+	}
+	if other.Git.SSHKnownHosts != "" {
+		c.Git.SSHKnownHosts = other.Git.SSHKnownHosts
+	}
+	if other.Git.CredentialHelper != "" {
+		c.Git.CredentialHelper = other.Git.CredentialHelper
 	}
 	if other.Offline {
 		c.Offline = other.Offline
@@ -236,10 +263,21 @@ func (c *Config) Validate() error {
 	return nil
 }
 
-// ResolveGitURL applies the gitmirror override to a Git URL if configured.
-func (c *Config) ResolveGitURL(url string) string {
-	if c.Overrides.GitMirror == "" {
-		return url
+// ResolveGitURL applies mirror overrides to a Git URL if configured.
+// It checks gitmirrors (host-specific map) first, then falls back to gitmirror (global).
+func (c *Config) ResolveGitURL(gitURL string) string {
+	// Check host-specific mirrors first
+	if len(c.Overrides.GitMirrors) > 0 {
+		for host, mirror := range c.Overrides.GitMirrors {
+			if hostMatches(gitURL, host) {
+				return rewriteGitURL(gitURL, mirror)
+			}
+		}
 	}
-	return rewriteGitURL(url, c.Overrides.GitMirror)
+
+	// Fall back to global mirror
+	if c.Overrides.GitMirror != "" {
+		return rewriteGitURL(gitURL, c.Overrides.GitMirror)
+	}
+	return gitURL
 }
