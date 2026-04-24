@@ -42,8 +42,8 @@ type ResolvedEnvironment struct {
 	Name           string
 	ControlRepoURL string
 	Ref            string
-	ModuleFiles    map[string]config.ModuleFileRequirement // path -> required|optional
-	BranchSelector *config.BranchSelector                  // for filtering during discovery
+	ModuleFiles    []config.ModuleFileRef
+	BranchSelector *config.BranchSelector // for filtering during discovery
 	Modules        []ResolvedModule
 }
 
@@ -179,28 +179,9 @@ func containsGlob(pattern string) bool {
 	return false
 }
 
-// buildModuleFiles merges the deprecated modulefile field with the new modulefiles map.
-func buildModuleFiles(src *config.Source) map[string]config.ModuleFileRequirement {
-	mf := make(map[string]config.ModuleFileRequirement)
-
-	// New format takes precedence
-	for path, req := range src.ModuleFiles {
-		mf[path] = req
-	}
-
-	// Backwards compatibility: old single modulefile field (treated as required)
-	if src.ModuleFile != "" {
-		if _, exists := mf[src.ModuleFile]; !exists {
-			mf[src.ModuleFile] = config.ModuleFileRequired
-		}
-	}
-
-	return mf
-}
-
 func (r *Resolver) resolveSourceEnvironments(src *config.Source) []ResolvedEnvironment {
 	gitURL := r.cfg.ResolveGitURL(src.URL)
-	moduleFiles := buildModuleFiles(src)
+	moduleFiles := src.ModuleFiles
 
 	selector := src.BranchSelector
 

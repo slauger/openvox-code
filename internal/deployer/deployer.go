@@ -197,18 +197,18 @@ func (d *Deployer) deployEnvironment(ctx context.Context, env *resolver.Resolved
 	// These modules are merged with (and override) the globally-resolved modules.
 	modules := env.Modules
 	if len(env.ModuleFiles) > 0 && env.ControlRepoURL != "" {
-		for path, requirement := range env.ModuleFiles {
-			parsed, err := d.readModuleFile(filepath.Join(tmpPath, filepath.Clean(path)))
+		for _, mf := range env.ModuleFiles {
+			parsed, err := d.readModuleFile(filepath.Join(tmpPath, filepath.Clean(mf.Name)))
 			if err != nil {
-				if requirement == config.ModuleFileRequired {
+				if mf.Required {
 					cleanup()
-					return fmt.Errorf("required module file %q not found in %s/%s: %w", path, env.Name, env.Ref, err)
+					return fmt.Errorf("required module file %q not found in %s/%s: %w", mf.Name, env.Name, env.Ref, err)
 				}
-				d.log.Debug("optional module file not found", "env", env.Name, "path", path)
+				d.log.Debug("optional module file not found", "env", env.Name, "path", mf.Name)
 				continue
 			}
 			modules = mergeModules(modules, parsed.modules, parsed.exclude)
-			d.log.Info("loaded module file", "env", env.Name, "path", path,
+			d.log.Info("loaded module file", "env", env.Name, "path", mf.Name,
 				"modules", len(parsed.modules), "excluded", len(parsed.exclude))
 		}
 	}
