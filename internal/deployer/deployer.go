@@ -243,9 +243,10 @@ func (d *Deployer) deployEnvironment(ctx context.Context, env *resolver.Resolved
 				return
 			}
 
-			ref := mod.SHA
-			if ref == "" {
-				ref = mod.Ref
+			ref, err := d.resolveModuleRef(ctx, mod, env.Name)
+			if err != nil {
+				errChan <- fmt.Errorf("resolving ref for module %q: %w", mod.Name, err)
+				return
 			}
 
 			modDir := filepath.Join(tmpPath, mod.InstallPath())
@@ -277,6 +278,45 @@ func (d *Deployer) deployEnvironment(ctx context.Context, env *resolver.Resolved
 	return nil
 }
 
+// resolveModuleRef determines the Git ref to check out for a module.
+//
+// Priority:
+//  1. If SHA is set (from lockfile), use it directly
+//  2. If follow_branch is true, try the environment name as branch
+//  3. Use the explicit ref field
+//  4. If ref is empty, use HEAD
+func (d *Deployer) resolveModuleRef(ctx context.Context, mod *resolver.ResolvedModule, envName string) (string, error) {
+	// Lockfile-pinned SHA always wins
+	if mod.SHA != "" {
+		return mod.SHA, nil
+	}
+
+	// follow_branch: try environment name as branch first
+	if mod.FollowBranch {
+		_, err := d.cache.ResolveRef(ctx, mod.GitURL, envName)
+		if err == nil {
+			d.log.Debug("follow_branch: using environment branch", "module", mod.Name, "branch", envName)
+			return envName, nil
+		}
+		// Branch doesn't exist in module repo — fall through to ref/HEAD
+		d.log.Debug("follow_branch: environment branch not found, using fallback", "module", mod.Name, "branch", envName)
+	}
+
+	// Explicit ref
+	if mod.Ref != "" {
+		if _, err := d.cache.ResolveRef(ctx, mod.GitURL, mod.Ref); err != nil {
+			return "", fmt.Errorf("ref %q not found in %s: %w", mod.Ref, mod.GitURL, err)
+		}
+		return mod.Ref, nil
+	}
+
+	// Default: HEAD
+	if _, err := d.cache.ResolveRef(ctx, mod.GitURL, "HEAD"); err != nil {
+		return "", fmt.Errorf("HEAD not found in %s (empty repo?): %w", mod.GitURL, err)
+	}
+	return "HEAD", nil
+}
+
 // parsedModuleFile holds the parsed result of a per-branch module file.
 type parsedModuleFile struct {
 	modules []resolver.ResolvedModule
@@ -298,11 +338,12 @@ func (d *Deployer) readModuleFile(path string) (*parsedModuleFile, error) {
 	modules := make([]resolver.ResolvedModule, 0, len(mf.Modules))
 	for _, m := range mf.Modules {
 		modules = append(modules, resolver.ResolvedModule{
-			Name:      m.Name,
-			GitURL:    m.Git,
-			Ref:       m.Ref,
-			TargetDir: m.TargetDir,
-			InstallAs: m.InstallAs,
+			Name:         m.Name,
+			GitURL:       m.Git,
+			Ref:          m.Ref,
+			FollowBranch: m.FollowBranch,
+			TargetDir:    m.TargetDir,
+			InstallAs:    m.InstallAs,
 		})
 	}
 

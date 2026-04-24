@@ -97,11 +97,12 @@ func (bs *BranchSelector) isExcluded(branch string) bool {
 
 // Module defines a Puppet module to be deployed.
 type Module struct {
-	Name      string `yaml:"name"`
-	Git       string `yaml:"git"`
-	Ref       string `yaml:"ref"`
-	TargetDir string `yaml:"target_dir,omitempty"` // Parent directory (default: "modules")
-	InstallAs string `yaml:"install_as,omitempty"` // Directory name (default: Name)
+	Name         string `yaml:"name"`
+	Git          string `yaml:"git"`
+	Ref          string `yaml:"ref,omitempty"`           // Git ref (branch/tag/SHA). Empty = HEAD.
+	FollowBranch bool   `yaml:"follow_branch,omitempty"` // Try environment branch first, then ref/HEAD as fallback
+	TargetDir    string `yaml:"target_dir,omitempty"`    // Parent directory (default: "modules")
+	InstallAs    string `yaml:"install_as,omitempty"`    // Directory name (default: Name)
 }
 
 // InstallPath returns the relative path where this module should be installed.
@@ -336,9 +337,6 @@ func (c *Config) Validate() error {
 			}
 			if m.Git == "" {
 				return fmt.Errorf("moduleset %q: module %q: git is required", setName, m.Name)
-			}
-			if m.Ref == "" {
-				return fmt.Errorf("moduleset %q: module %q: ref is required", setName, m.Name)
 			}
 			if seen[m.Name] {
 				return fmt.Errorf("moduleset %q: duplicate module %q", setName, m.Name)

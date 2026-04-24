@@ -16,12 +16,13 @@ type BranchLister interface {
 
 // ResolvedModule represents a module ready for deployment.
 type ResolvedModule struct {
-	Name      string
-	GitURL    string
-	Ref       string
-	SHA       string // Set after fetching, empty during pre-fetch resolve
-	TargetDir string // Parent directory (default: "modules")
-	InstallAs string // Directory name (default: Name)
+	Name         string
+	GitURL       string
+	Ref          string // Git ref. Empty = HEAD.
+	FollowBranch bool   // Try environment branch first, then Ref/HEAD as fallback
+	SHA          string // Set after fetching, empty during pre-fetch resolve
+	TargetDir    string // Parent directory (default: "modules")
+	InstallAs    string // Directory name (default: Name)
 }
 
 // InstallPath returns the relative path where this module should be installed.
@@ -246,11 +247,12 @@ func (r *Resolver) collectModules(env *config.Environment) ([]ResolvedModule, er
 		for _, m := range modules {
 			gitURL := r.cfg.ResolveGitURL(m.Git)
 			moduleMap[m.Name] = ResolvedModule{
-				Name:      m.Name,
-				GitURL:    gitURL,
-				Ref:       m.Ref,
-				TargetDir: m.TargetDir,
-				InstallAs: m.InstallAs,
+				Name:         m.Name,
+				GitURL:       gitURL,
+				Ref:          m.Ref,
+				FollowBranch: m.FollowBranch,
+				TargetDir:    m.TargetDir,
+				InstallAs:    m.InstallAs,
 			}
 		}
 	}
@@ -259,11 +261,12 @@ func (r *Resolver) collectModules(env *config.Environment) ([]ResolvedModule, er
 	for _, m := range env.Modules {
 		gitURL := r.cfg.ResolveGitURL(m.Git)
 		moduleMap[m.Name] = ResolvedModule{
-			Name:      m.Name,
-			GitURL:    gitURL,
-			Ref:       m.Ref,
-			TargetDir: m.TargetDir,
-			InstallAs: m.InstallAs,
+			Name:         m.Name,
+			GitURL:       gitURL,
+			Ref:          m.Ref,
+			FollowBranch: m.FollowBranch,
+			TargetDir:    m.TargetDir,
+			InstallAs:    m.InstallAs,
 		}
 	}
 
