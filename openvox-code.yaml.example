@@ -1,0 +1,73 @@
+# openvox-code example configuration
+# See https://slauger.github.io/openvox-code/reference/configuration/ for full reference.
+
+# Required: directory for bare clone Git caches
+cachedir: /var/cache/openvox-code
+
+# Required: target directory for deployed Puppet environments
+environmentdir: /etc/puppetlabs/code/environments
+
+# Optional: include additional configuration files (supports globs, no recursive includes)
+# includes:
+#   - modulesets/*.yaml
+#   - environments/production.yaml
+
+# Optional: control repository sources for branch-based environment discovery
+# Each branch becomes a Puppet environment automatically.
+sources:
+  - url: https://github.com/example/puppet-control-repo.git
+    branches: all
+    # Or specify branches explicitly:
+    # branches:
+    #   - production
+    #   - staging
+    #   - development
+
+# Optional: reusable named groups of modules
+modulesets:
+  base:
+    - name: stdlib
+      git: https://github.com/puppetlabs/puppetlabs-stdlib.git
+      ref: v9.7.0
+    - name: concat
+      git: https://github.com/puppetlabs/puppetlabs-concat.git
+      ref: v9.1.0
+    - name: firewall
+      git: https://github.com/puppetlabs/puppetlabs-firewall.git
+      ref: v8.1.3
+
+  webservers:
+    - name: apache
+      git: https://github.com/puppetlabs/puppetlabs-apache.git
+      ref: v12.2.0
+    - name: nginx
+      git: https://github.com/puppet/puppet-nginx.git
+      ref: v5.0.0
+
+# Optional: explicitly declared environments (overrides branch discovery)
+environments:
+  production:
+    ref: v1.5.0
+    modulesets:
+      - base
+      - webservers
+  staging:
+    ref: staging
+    modulesets:
+      - base
+    modules:
+      - name: apache
+        git: https://github.com/puppetlabs/puppetlabs-apache.git
+        ref: main  # use latest on staging
+
+# Optional: global overrides
+# overrides:
+#   gitmirror: https://git-mirror.internal.example.com
+
+# Optional: skip network operations (deploy from cache only)
+# offline: true
+
+# Optional: OCI image configuration (for use with openvox-operator)
+# oci:
+#   registry: ghcr.io/example/puppet-environments
+#   tag: latest
