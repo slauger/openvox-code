@@ -19,21 +19,21 @@ Minimum viable product: fetch Git repositories and deploy Puppet environments to
 
 Reproducible and air-gapped deployments.
 
-- [ ] Lockfile generation (`openvox-code lock`)
-- [ ] Deploy from lockfile with pinned SHAs
-- [ ] Full offline mode (`offline: true`)
-- [ ] Git mirror URL rewriting (`overrides.gitmirror`)
+- [x] Lockfile generation (`openvox-code lock`)
+- [x] Deploy from lockfile with pinned SHAs
+- [x] Full offline mode (`offline: true`)
+- [x] Git mirror URL rewriting (`overrides.gitmirror`)
 - [ ] Cache portability (copy cache between machines)
 
 ## v0.3 — OCI Image Output
 
 Package Puppet environments as container images for Kubernetes.
 
-- [ ] OCI image builder
-- [ ] Registry push support
-- [ ] `openvox-code build` command
+- [x] OCI image builder
+- [x] Registry push support
+- [x] `openvox-code build` command
+- [x] Multi-architecture image support
 - [ ] Integration with openvox-operator
-- [ ] Multi-architecture image support
 
 ## v0.4 — Webhook/Watch Mode + Metrics
 
