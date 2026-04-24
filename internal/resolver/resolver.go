@@ -42,7 +42,7 @@ type ResolvedEnvironment struct {
 	Name           string
 	ControlRepoURL string
 	Ref            string
-	ModuleFilePath string // Path within control repo to per-branch module list
+	ModuleFiles    map[string]config.ModuleFileRequirement // path -> required|optional
 	Modules        []ResolvedModule
 }
 
@@ -106,7 +106,7 @@ func (r *Resolver) ExpandDiscovery(ctx context.Context, envs []ResolvedEnvironme
 				Name:           branch,
 				ControlRepoURL: env.ControlRepoURL,
 				Ref:            branch,
-				ModuleFilePath: env.ModuleFilePath,
+				ModuleFiles:    env.ModuleFiles,
 			})
 		}
 	}
@@ -160,8 +160,28 @@ func (r *Resolver) resolveStaticEnvironment(name string, env *config.Environment
 	}, nil
 }
 
+// buildModuleFiles merges the deprecated modulefile field with the new modulefiles map.
+func buildModuleFiles(src config.Source) map[string]config.ModuleFileRequirement {
+	mf := make(map[string]config.ModuleFileRequirement)
+
+	// New format takes precedence
+	for path, req := range src.ModuleFiles {
+		mf[path] = req
+	}
+
+	// Backwards compatibility: old single modulefile field (treated as required)
+	if src.ModuleFile != "" {
+		if _, exists := mf[src.ModuleFile]; !exists {
+			mf[src.ModuleFile] = config.ModuleFileRequired
+		}
+	}
+
+	return mf
+}
+
 func (r *Resolver) resolveSourceEnvironments(src config.Source) []ResolvedEnvironment {
 	gitURL := r.cfg.ResolveGitURL(src.URL)
+	moduleFiles := buildModuleFiles(src)
 
 	if src.Branches.All {
 		// Branch discovery will happen after fetching
@@ -170,7 +190,7 @@ func (r *Resolver) resolveSourceEnvironments(src config.Source) []ResolvedEnviro
 				Name:           "__source_discovery__",
 				ControlRepoURL: gitURL,
 				Ref:            "__all__",
-				ModuleFilePath: src.ModuleFile,
+				ModuleFiles:    moduleFiles,
 			},
 		}
 	}
@@ -181,7 +201,7 @@ func (r *Resolver) resolveSourceEnvironments(src config.Source) []ResolvedEnviro
 			Name:           branch,
 			ControlRepoURL: gitURL,
 			Ref:            branch,
-			ModuleFilePath: src.ModuleFile,
+			ModuleFiles:    moduleFiles,
 		})
 	}
 	return envs

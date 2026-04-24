@@ -24,11 +24,22 @@ type Config struct {
 	OCI            *OCIConfig              `yaml:"oci,omitempty"`
 }
 
+// ModuleFileRequirement defines whether a module file is required or optional.
+type ModuleFileRequirement string
+
+const (
+	// ModuleFileRequired means sync fails if the file is missing from a branch.
+	ModuleFileRequired ModuleFileRequirement = "required"
+	// ModuleFileOptional means a missing file is silently skipped.
+	ModuleFileOptional ModuleFileRequirement = "optional"
+)
+
 // Source defines a control repository for branch-based environment discovery.
 type Source struct {
-	URL        string     `yaml:"url"`
-	Branches   BranchSpec `yaml:"branches"`
-	ModuleFile string     `yaml:"modulefile,omitempty"`
+	URL         string                           `yaml:"url"`
+	Branches    BranchSpec                       `yaml:"branches"`
+	ModuleFile  string                           `yaml:"modulefile,omitempty"`  // Deprecated: use modulefiles
+	ModuleFiles map[string]ModuleFileRequirement `yaml:"modulefiles,omitempty"` // path -> required|optional
 }
 
 // BranchSpec can be "all" or a list of specific branch names.

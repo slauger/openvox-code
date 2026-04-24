@@ -193,16 +193,22 @@ func (d *Deployer) deployEnvironment(ctx context.Context, env *resolver.Resolved
 		}
 	}
 
-	// Step 2: Read per-environment module file from the checked-out control repo
+	// Step 2: Read per-environment module files from the checked-out control repo
 	// These modules are merged with (and override) the globally-resolved modules.
 	modules := env.Modules
-	if env.ModuleFilePath != "" && env.ControlRepoURL != "" {
-		parsed, err := d.readModuleFile(filepath.Join(tmpPath, filepath.Clean(env.ModuleFilePath)))
-		if err != nil {
-			d.log.Debug("no module file found", "env", env.Name, "path", env.ModuleFilePath, "error", err)
-		} else {
+	if len(env.ModuleFiles) > 0 && env.ControlRepoURL != "" {
+		for path, requirement := range env.ModuleFiles {
+			parsed, err := d.readModuleFile(filepath.Join(tmpPath, filepath.Clean(path)))
+			if err != nil {
+				if requirement == config.ModuleFileRequired {
+					cleanup()
+					return fmt.Errorf("required module file %q not found in %s/%s: %w", path, env.Name, env.Ref, err)
+				}
+				d.log.Debug("optional module file not found", "env", env.Name, "path", path)
+				continue
+			}
 			modules = mergeModules(modules, parsed.modules, parsed.exclude)
-			d.log.Info("loaded modules from control repo", "env", env.Name, "path", env.ModuleFilePath,
+			d.log.Info("loaded module file", "env", env.Name, "path", path,
 				"modules", len(parsed.modules), "excluded", len(parsed.exclude))
 		}
 	}
