@@ -2,11 +2,17 @@
 package resolver
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 
 	"github.com/slauger/openvox-code/internal/config"
 )
+
+// BranchLister can list branches in a cached Git repository.
+type BranchLister interface {
+	ListBranches(ctx context.Context, gitURL string) ([]string, error)
+}
 
 // ResolvedModule represents a module ready for deployment.
 type ResolvedModule struct {
@@ -60,6 +66,34 @@ func (r *Resolver) Resolve() ([]ResolvedEnvironment, error) {
 	}
 
 	return envs, nil
+}
+
+// ExpandDiscovery replaces __source_discovery__ placeholders with actual branch-based
+// environments by listing branches from the cache. This must be called after fetching.
+func (r *Resolver) ExpandDiscovery(ctx context.Context, envs []ResolvedEnvironment, lister BranchLister) ([]ResolvedEnvironment, error) {
+	var result []ResolvedEnvironment
+	for _, env := range envs {
+		if env.Name != "__source_discovery__" {
+			result = append(result, env)
+			continue
+		}
+
+		branches, err := lister.ListBranches(ctx, env.ControlRepoURL)
+		if err != nil {
+			return nil, fmt.Errorf("discovering branches for %s: %w", env.ControlRepoURL, err)
+		}
+
+		r.log.Info("discovered branches", "url", env.ControlRepoURL, "count", len(branches))
+		for _, branch := range branches {
+			r.log.Debug("discovered environment", "branch", branch, "url", env.ControlRepoURL)
+			result = append(result, ResolvedEnvironment{
+				Name:           branch,
+				ControlRepoURL: env.ControlRepoURL,
+				Ref:            branch,
+			})
+		}
+	}
+	return result, nil
 }
 
 // Validate checks the configuration for correctness.

@@ -104,6 +104,12 @@ var syncCmd = &cobra.Command{
 			return fmt.Errorf("fetching repositories: %w", err)
 		}
 
+		// Expand branch discovery after fetching
+		resolved, err = r.ExpandDiscovery(ctx, resolved, cm)
+		if err != nil {
+			return fmt.Errorf("expanding branch discovery: %w", err)
+		}
+
 		log.Info("starting deploy phase")
 		clean, _ := cmd.Flags().GetBool("clean")
 		if err := d.DeployAll(ctx, resolved, clean); err != nil {
@@ -326,6 +332,12 @@ var lockCmd = &cobra.Command{
 		// Fetch all repos to resolve refs to SHAs
 		if err := f.FetchAll(ctx, resolved); err != nil {
 			return fmt.Errorf("fetching repositories: %w", err)
+		}
+
+		// Expand branch discovery after fetching
+		resolved, err = r.ExpandDiscovery(ctx, resolved, cm)
+		if err != nil {
+			return fmt.Errorf("expanding branch discovery: %w", err)
 		}
 
 		// Build lockfile

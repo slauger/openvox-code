@@ -1,12 +1,25 @@
 package resolver
 
 import (
+	"context"
 	"log/slog"
 	"os"
 	"testing"
 
 	"github.com/slauger/openvox-code/internal/config"
 )
+
+// mockBranchLister implements BranchLister for testing.
+type mockBranchLister struct {
+	branches map[string][]string
+}
+
+func (m *mockBranchLister) ListBranches(_ context.Context, gitURL string) ([]string, error) {
+	if branches, ok := m.branches[gitURL]; ok {
+		return branches, nil
+	}
+	return nil, nil
+}
 
 func testLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
@@ -177,6 +190,83 @@ func TestResolveSourceBranches(t *testing.T) {
 	if !names["production"] || !names["staging"] {
 		t.Errorf("expected production and staging, got %v", names)
 	}
+}
+
+func TestExpandDiscovery(t *testing.T) {
+	cfg := &config.Config{
+		CacheDir:       "/tmp/cache",
+		EnvironmentDir: "/tmp/envs",
+	}
+	r := New(cfg, testLogger())
+
+	envs := []ResolvedEnvironment{
+		{Name: "production", Ref: "main"},
+		{Name: "__source_discovery__", ControlRepoURL: "https://example.com/control.git", Ref: "__all__"},
+		{Name: "staging", Ref: "staging"},
+	}
+
+	lister := &mockBranchLister{
+		branches: map[string][]string{
+			"https://example.com/control.git": {"main", "develop", "feature-x"},
+		},
+	}
+
+	result, err := r.ExpandDiscovery(context.Background(), envs, lister)
+	if err != nil {
+		t.Fatalf("ExpandDiscovery() error = %v", err)
+	}
+
+	// Should have: production + staging (kept) + main + develop + feature-x (discovered)
+	if len(result) != 5 {
+		t.Fatalf("got %d environments, want 5, got: %v", len(result), envNames(result))
+	}
+
+	names := make(map[string]bool)
+	for _, env := range result {
+		names[env.Name] = true
+	}
+	for _, expected := range []string{"production", "staging", "main", "develop", "feature-x"} {
+		if !names[expected] {
+			t.Errorf("missing environment %q in result", expected)
+		}
+	}
+
+	// Verify discovered envs have control repo URL
+	for _, env := range result {
+		if env.Name == "develop" || env.Name == "feature-x" || env.Name == "main" {
+			if env.ControlRepoURL != "https://example.com/control.git" {
+				t.Errorf("discovered env %q missing control repo URL", env.Name)
+			}
+		}
+	}
+}
+
+func TestExpandDiscoveryNoop(t *testing.T) {
+	cfg := &config.Config{
+		CacheDir:       "/tmp/cache",
+		EnvironmentDir: "/tmp/envs",
+	}
+	r := New(cfg, testLogger())
+
+	envs := []ResolvedEnvironment{
+		{Name: "production", Ref: "main"},
+	}
+
+	result, err := r.ExpandDiscovery(context.Background(), envs, &mockBranchLister{})
+	if err != nil {
+		t.Fatalf("ExpandDiscovery() error = %v", err)
+	}
+	if len(result) != 1 || result[0].Name != "production" {
+		t.Errorf("expected passthrough, got %v", result)
+	}
+}
+
+func envNames(envs []ResolvedEnvironment) []string {
+	names := make([]string, len(envs))
+	for i, e := range envs {
+		names[i] = e.Name
+	}
+	return names
 }
 
 func TestValidateDuplicateModules(t *testing.T) {
