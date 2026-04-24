@@ -190,12 +190,13 @@ func (d *Deployer) deployEnvironment(ctx context.Context, env *resolver.Resolved
 	// These modules are merged with (and override) the globally-resolved modules.
 	modules := env.Modules
 	if env.ModuleFilePath != "" && env.ControlRepoURL != "" {
-		localModules, err := d.readModuleFile(filepath.Join(tmpPath, filepath.Clean(env.ModuleFilePath)))
+		parsed, err := d.readModuleFile(filepath.Join(tmpPath, filepath.Clean(env.ModuleFilePath)))
 		if err != nil {
 			d.log.Debug("no module file found", "env", env.Name, "path", env.ModuleFilePath, "error", err)
 		} else {
-			modules = mergeModules(modules, localModules)
-			d.log.Info("loaded modules from control repo", "env", env.Name, "path", env.ModuleFilePath, "count", len(localModules))
+			modules = mergeModules(modules, parsed.modules, parsed.exclude)
+			d.log.Info("loaded modules from control repo", "env", env.Name, "path", env.ModuleFilePath,
+				"modules", len(parsed.modules), "excluded", len(parsed.exclude))
 		}
 	}
 
@@ -240,8 +241,14 @@ func (d *Deployer) deployEnvironment(ctx context.Context, env *resolver.Resolved
 	return nil
 }
 
+// parsedModuleFile holds the parsed result of a per-branch module file.
+type parsedModuleFile struct {
+	modules []resolver.ResolvedModule
+	exclude map[string]bool
+}
+
 // readModuleFile reads a YAML module list from a file inside a checked-out environment.
-func (d *Deployer) readModuleFile(path string) ([]resolver.ResolvedModule, error) {
+func (d *Deployer) readModuleFile(path string) (*parsedModuleFile, error) {
 	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		return nil, err
@@ -262,15 +269,24 @@ func (d *Deployer) readModuleFile(path string) ([]resolver.ResolvedModule, error
 			InstallAs: m.InstallAs,
 		})
 	}
-	return modules, nil
+
+	exclude := make(map[string]bool, len(mf.Exclude))
+	for _, name := range mf.Exclude {
+		exclude[name] = true
+	}
+
+	return &parsedModuleFile{modules: modules, exclude: exclude}, nil
 }
 
 // mergeModules merges environment-local modules into global modules.
 // Local modules override global modules with the same name.
-func mergeModules(global, local []resolver.ResolvedModule) []resolver.ResolvedModule {
+// Excluded module names are removed from the result.
+func mergeModules(global, local []resolver.ResolvedModule, exclude map[string]bool) []resolver.ResolvedModule {
 	merged := make(map[string]resolver.ResolvedModule)
 	for _, m := range global {
-		merged[m.Name] = m
+		if !exclude[m.Name] {
+			merged[m.Name] = m
+		}
 	}
 	for _, m := range local {
 		merged[m.Name] = m

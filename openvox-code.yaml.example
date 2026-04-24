@@ -11,9 +11,12 @@ environmentdir: /tmp/openvox-code/environments
 
 # Optional: control repository sources for branch-based environment discovery
 # Each branch becomes a Puppet environment automatically.
+# The branch content (manifests/, hieradata/, data/) is checked out as the environment base.
+# If modulefile is set, modules are read from that file inside each branch.
 sources:
   - url: https://github.com/example/puppet-control-repo.git
     branches: all
+    modulefile: modules.yaml  # per-branch module definitions
     # Or specify branches explicitly:
     # branches:
     #   - production
@@ -21,6 +24,7 @@ sources:
     #   - development
 
 # Optional: reusable named groups of modules
+# These are deployed globally unless excluded per-environment via modules.yaml
 modulesets:
   base:
     - name: stdlib
@@ -53,9 +57,30 @@ environments:
     modulesets:
       - base
     modules:
+      # Custom target directory: install into site-modules/ instead of modules/
+      - name: myapp
+        git: https://github.com/example/puppet-myapp.git
+        ref: main
+        target_dir: site-modules  # parent directory (default: "modules")
+      # Custom install name: directory name differs from module name
       - name: apache
         git: https://github.com/puppetlabs/puppetlabs-apache.git
-        ref: main  # use latest on staging
+        ref: main
+        install_as: httpd  # installed as modules/httpd/ instead of modules/apache/
+
+# Per-branch module file (modules.yaml inside the control repo):
+#
+# modules:
+#   - name: stdlib
+#     git: https://github.com/puppetlabs/puppetlabs-stdlib.git
+#     ref: v9.7.0
+#   - name: myapp
+#     git: https://github.com/example/puppet-myapp.git
+#     ref: main
+#     target_dir: site-modules
+#
+# exclude:
+#   - firewall  # remove this global module from this environment
 
 # Optional: Git authentication
 # git:

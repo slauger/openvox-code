@@ -90,6 +90,7 @@ type Environment struct {
 // ModuleFile represents a per-environment module list read from a control repo branch.
 type ModuleFile struct {
 	Modules []Module `yaml:"modules"`
+	Exclude []string `yaml:"exclude,omitempty"` // Global module names to exclude from this environment
 }
 
 // Overrides contains global override settings.
