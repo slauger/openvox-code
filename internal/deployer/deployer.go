@@ -197,18 +197,30 @@ func (d *Deployer) deployEnvironment(ctx context.Context, env *resolver.Resolved
 	modules := env.Modules
 	if len(env.ModuleFiles) > 0 && env.ControlRepoURL != "" {
 		for _, mf := range env.ModuleFiles {
-			parsed, err := d.readModuleFile(filepath.Join(tmpPath, filepath.Clean(mf.Name)))
+			paths, err := d.expandModuleFilePaths(tmpPath, mf.Name)
 			if err != nil {
 				if mf.Required {
 					cleanup()
-					return fmt.Errorf("required module file %q not found in %s/%s: %w", mf.Name, env.Name, env.Ref, err)
+					return fmt.Errorf("required module file pattern %q failed in %s/%s: %w", mf.Name, env.Name, env.Ref, err)
 				}
-				d.log.Debug("optional module file not found", "env", env.Name, "path", mf.Name)
+				d.log.Debug("optional module file pattern matched nothing", "env", env.Name, "pattern", mf.Name)
 				continue
 			}
-			modules = mergeModules(modules, parsed.modules, parsed.exclude)
-			d.log.Info("loaded module file", "env", env.Name, "path", mf.Name,
-				"modules", len(parsed.modules), "excluded", len(parsed.exclude))
+			if len(paths) == 0 && mf.Required {
+				cleanup()
+				return fmt.Errorf("required module file %q not found in %s/%s", mf.Name, env.Name, env.Ref)
+			}
+			for _, path := range paths {
+				parsed, err := d.readModuleFile(path)
+				if err != nil {
+					cleanup()
+					return fmt.Errorf("parsing module file %q in %s/%s: %w", path, env.Name, env.Ref, err)
+				}
+				modules = mergeModules(modules, parsed.modules, parsed.exclude)
+				relPath, _ := filepath.Rel(tmpPath, path)
+				d.log.Info("loaded module file", "env", env.Name, "path", relPath,
+					"modules", len(parsed.modules), "excluded", len(parsed.exclude))
+			}
 		}
 	}
 
@@ -314,6 +326,28 @@ func (d *Deployer) resolveModuleRef(ctx context.Context, mod *resolver.ResolvedM
 		return "", fmt.Errorf("HEAD not found in %s (empty repo?): %w", mod.GitURL, err)
 	}
 	return "HEAD", nil
+}
+
+// expandModuleFilePaths resolves a module file name or glob pattern to actual file paths
+// within a checked-out environment directory.
+func (d *Deployer) expandModuleFilePaths(envDir, pattern string) ([]string, error) {
+	fullPattern := filepath.Join(envDir, filepath.Clean(pattern))
+
+	// Check if it's a glob pattern
+	if strings.ContainsAny(pattern, "*?[") {
+		matches, err := filepath.Glob(fullPattern)
+		if err != nil {
+			return nil, fmt.Errorf("expanding glob %q: %w", pattern, err)
+		}
+		sort.Strings(matches)
+		return matches, nil
+	}
+
+	// Exact path — check if it exists
+	if _, err := os.Stat(fullPattern); err != nil {
+		return nil, err
+	}
+	return []string{fullPattern}, nil
 }
 
 // parsedModuleFile holds the parsed result of a per-branch module file.
