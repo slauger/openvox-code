@@ -24,9 +24,17 @@ var allowedGitSubcommands = map[string]bool{
 	"-C":           true,
 }
 
+// GitAuth holds Git authentication settings passed to git commands.
+type GitAuth struct {
+	SSHKeyPath       string
+	SSHKnownHosts    string
+	CredentialHelper string
+}
+
 // Manager handles bare clone Git caches.
 type Manager struct {
 	baseDir string
+	auth    GitAuth
 	log     *slog.Logger
 }
 
@@ -36,6 +44,11 @@ func New(baseDir string, log *slog.Logger) *Manager {
 		baseDir: baseDir,
 		log:     log,
 	}
+}
+
+// SetAuth configures Git authentication for all subsequent operations.
+func (m *Manager) SetAuth(auth GitAuth) {
+	m.auth = auth
 }
 
 // BaseDir returns the base cache directory.
@@ -55,6 +68,7 @@ func (m *Manager) git(ctx context.Context, args ...string) ([]byte, error) {
 		return nil, err
 	}
 	cmd := exec.CommandContext(ctx, "git", args...) // #nosec G204 -- args validated above
+	m.applyAuth(cmd)
 	return cmd.Output()
 }
 
@@ -65,7 +79,33 @@ func (m *Manager) gitRun(ctx context.Context, args ...string) error {
 	}
 	cmd := exec.CommandContext(ctx, "git", args...) // #nosec G204 -- args validated above
 	cmd.Stderr = os.Stderr
+	m.applyAuth(cmd)
 	return cmd.Run()
+}
+
+// applyAuth sets environment variables on a git command for SSH key and credential helper auth.
+func (m *Manager) applyAuth(cmd *exec.Cmd) {
+	if m.auth.SSHKeyPath == "" && m.auth.CredentialHelper == "" {
+		return
+	}
+
+	cmd.Env = append(os.Environ(), cmd.Env...)
+
+	if m.auth.SSHKeyPath != "" {
+		sshCmd := fmt.Sprintf("ssh -i %s -o IdentitiesOnly=yes", m.auth.SSHKeyPath)
+		if m.auth.SSHKnownHosts != "" {
+			sshCmd += fmt.Sprintf(" -o UserKnownHostsFile=%s", m.auth.SSHKnownHosts)
+		}
+		cmd.Env = append(cmd.Env, "GIT_SSH_COMMAND="+sshCmd)
+	}
+
+	if m.auth.CredentialHelper != "" {
+		cmd.Env = append(cmd.Env,
+			"GIT_CONFIG_COUNT=1",
+			"GIT_CONFIG_KEY_0=credential.helper",
+			"GIT_CONFIG_VALUE_0="+m.auth.CredentialHelper,
+		)
+	}
 }
 
 // validateGitArgs checks that the git subcommand is in the allowed set.

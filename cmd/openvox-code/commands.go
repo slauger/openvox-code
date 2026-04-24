@@ -72,6 +72,18 @@ func loadConfig() (*config.Config, error) {
 	return cfg, nil
 }
 
+func newCacheManager(cfg *config.Config, log *slog.Logger) *cache.Manager {
+	cm := cache.New(cfg.CacheDir, log)
+	if cfg.Git.SSHKeyPath != "" || cfg.Git.CredentialHelper != "" {
+		cm.SetAuth(cache.GitAuth{
+			SSHKeyPath:       cfg.Git.SSHKeyPath,
+			SSHKnownHosts:    cfg.Git.SSHKnownHosts,
+			CredentialHelper: cfg.Git.CredentialHelper,
+		})
+	}
+	return cm
+}
+
 var syncCmd = &cobra.Command{
 	Use:   "sync",
 	Short: "Fetch and deploy all environments",
@@ -84,7 +96,7 @@ var syncCmd = &cobra.Command{
 		}
 
 		ctx := cmd.Context()
-		cm := cache.New(cfg.CacheDir, log)
+		cm := newCacheManager(cfg, log)
 		d := deployer.New(cfg.EnvironmentDir, cm, log)
 
 		if cfg.Offline {
@@ -137,7 +149,7 @@ var mirrorCmd = &cobra.Command{
 		}
 
 		ctx := cmd.Context()
-		cm := cache.New(cfg.CacheDir, log)
+		cm := newCacheManager(cfg, log)
 		f := fetcher.New(cm, parallel, log)
 		r := resolver.New(cfg, log)
 
@@ -167,7 +179,7 @@ var deployCmd = &cobra.Command{
 		}
 
 		ctx := cmd.Context()
-		cm := cache.New(cfg.CacheDir, log)
+		cm := newCacheManager(cfg, log)
 		d := deployer.New(cfg.EnvironmentDir, cm, log)
 
 		var resolved []resolver.ResolvedEnvironment
@@ -285,12 +297,18 @@ var buildCmd = &cobra.Command{
 			return fmt.Errorf("--registry or oci.registry in config is required for push")
 		}
 
+		var authConfig string
+		if cfg.OCI != nil && cfg.OCI.AuthConfig != "" {
+			authConfig = cfg.OCI.AuthConfig
+		}
+
 		b := builder.New(log)
-		img, err := b.Build(builder.Options{
+		img, err := b.Build(&builder.Options{
 			EnvironmentDir: cfg.EnvironmentDir,
 			Registry:       registry,
 			Tag:            tag,
 			Push:           push,
+			AuthConfig:     authConfig,
 		})
 		if err != nil {
 			return fmt.Errorf("building image: %w", err)
@@ -320,7 +338,7 @@ var lockCmd = &cobra.Command{
 		}
 
 		ctx := cmd.Context()
-		cm := cache.New(cfg.CacheDir, log)
+		cm := newCacheManager(cfg, log)
 		f := fetcher.New(cm, parallel, log)
 		r := resolver.New(cfg, log)
 

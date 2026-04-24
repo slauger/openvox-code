@@ -44,7 +44,7 @@ func TestBuild(t *testing.T) {
 	createTestEnvironments(t, envDir)
 
 	b := New(testLogger())
-	img, err := b.Build(Options{
+	img, err := b.Build(&Options{
 		EnvironmentDir: envDir,
 		Tag:            "v1.0.0",
 	})
@@ -77,7 +77,7 @@ func TestBuildWithPlatform(t *testing.T) {
 	createTestEnvironments(t, envDir)
 
 	b := New(testLogger())
-	img, err := b.Build(Options{
+	img, err := b.Build(&Options{
 		EnvironmentDir: envDir,
 		Platform: &v1.Platform{
 			OS:           "linux",
@@ -102,7 +102,7 @@ func TestBuildWithPlatform(t *testing.T) {
 
 func TestBuildInvalidDir(t *testing.T) {
 	b := New(testLogger())
-	_, err := b.Build(Options{
+	_, err := b.Build(&Options{
 		EnvironmentDir: "/nonexistent/path",
 	})
 	if err == nil {
@@ -116,7 +116,7 @@ func TestSave(t *testing.T) {
 	createTestEnvironments(t, envDir)
 
 	b := New(testLogger())
-	img, err := b.Build(Options{
+	img, err := b.Build(&Options{
 		EnvironmentDir: envDir,
 	})
 	if err != nil {
@@ -144,7 +144,7 @@ func TestBuildLayerContents(t *testing.T) {
 	createTestEnvironments(t, envDir)
 
 	b := New(testLogger())
-	img, err := b.Build(Options{
+	img, err := b.Build(&Options{
 		EnvironmentDir: envDir,
 	})
 	if err != nil {
@@ -213,7 +213,7 @@ func TestBuildMultiArch(t *testing.T) {
 		{OS: "linux", Architecture: "arm64"},
 	}
 
-	idx, err := b.BuildMultiArch(Options{
+	idx, err := b.BuildMultiArch(&Options{
 		EnvironmentDir: envDir,
 		Tag:            "v1.0.0",
 	}, platforms)
@@ -237,7 +237,7 @@ func TestBuildDefaultTag(t *testing.T) {
 
 	b := New(testLogger())
 	// Empty tag should default to "latest"
-	_, err := b.Build(Options{
+	_, err := b.Build(&Options{
 		EnvironmentDir: envDir,
 	})
 	if err != nil {

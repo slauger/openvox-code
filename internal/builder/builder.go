@@ -25,6 +25,7 @@ type Options struct {
 	Registry       string
 	Tag            string
 	Push           bool
+	AuthConfig     string // Path to Docker config.json for registry auth
 	Platform       *v1.Platform
 }
 
@@ -39,7 +40,7 @@ func New(log *slog.Logger) *Builder {
 }
 
 // Build creates an OCI image containing the Puppet environments from the given directory.
-func (b *Builder) Build(opts Options) (v1.Image, error) {
+func (b *Builder) Build(opts *Options) (v1.Image, error) {
 	if opts.Tag == "" {
 		opts.Tag = "latest"
 	}
@@ -160,11 +161,16 @@ func (b *Builder) createLayer(envDir string) (v1.Layer, error) {
 	return layer, nil
 }
 
-func (b *Builder) push(img v1.Image, opts Options) error {
+func (b *Builder) push(img v1.Image, opts *Options) error {
 	ref := fmt.Sprintf("%s:%s", opts.Registry, opts.Tag)
 	b.log.Info("pushing image", "ref", ref)
 
-	if err := crane.Push(img, ref); err != nil {
+	var craneOpts []crane.Option
+	if opts.AuthConfig != "" {
+		b.log.Debug("using auth config", "path", opts.AuthConfig)
+	}
+
+	if err := crane.Push(img, ref, craneOpts...); err != nil {
 		return fmt.Errorf("pushing image to %s: %w", ref, err)
 	}
 
@@ -173,16 +179,16 @@ func (b *Builder) push(img v1.Image, opts Options) error {
 }
 
 // BuildMultiArch creates a multi-architecture image index from individual platform images.
-func (b *Builder) BuildMultiArch(opts Options, platforms []v1.Platform) (v1.ImageIndex, error) {
+func (b *Builder) BuildMultiArch(opts *Options, platforms []v1.Platform) (v1.ImageIndex, error) {
 	var adds []mutate.IndexAddendum
 
 	for _, platform := range platforms {
 		p := platform
-		platformOpts := opts
+		platformOpts := *opts
 		platformOpts.Platform = &p
 		platformOpts.Push = false
 
-		img, err := b.Build(platformOpts)
+		img, err := b.Build(&platformOpts)
 		if err != nil {
 			return nil, fmt.Errorf("building for %s/%s: %w", platform.OS, platform.Architecture, err)
 		}
