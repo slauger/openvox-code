@@ -5,8 +5,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"gopkg.in/yaml.v3"
 )
 
 func TestLoadMinimalConfig(t *testing.T) {
@@ -14,11 +12,14 @@ func TestLoadMinimalConfig(t *testing.T) {
 	cfgFile := filepath.Join(dir, "openvox-code.yaml")
 
 	content := `
-cachedir: /var/cache/openvox-code
-environmentdir: /etc/puppetlabs/code/environments
-sources:
-  - url: https://github.com/example/control-repo.git
-    branches: all
+apiVersion: openvox.voxpupuli.org/v1alpha1
+kind: CodeConfig
+spec:
+  cachedir: /var/cache/openvox-code
+  environmentdir: /etc/puppetlabs/code/environments
+  sources:
+    - url: https://github.com/example/control-repo.git
+      branchSelector: {}
 `
 	if err := os.WriteFile(cfgFile, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
@@ -38,8 +39,8 @@ sources:
 	if len(cfg.Sources) != 1 {
 		t.Fatalf("Sources length = %d, want 1", len(cfg.Sources))
 	}
-	if !cfg.Sources[0].Branches.All {
-		t.Error("Sources[0].Branches.All = false, want true")
+	if !cfg.Sources[0].BranchSelector.MatchesAll() {
+		t.Error("expected branchSelector to match all (no patterns)")
 	}
 }
 
@@ -209,7 +210,7 @@ func TestValidate(t *testing.T) {
 				CacheDir:       "/tmp/cache",
 				EnvironmentDir: "/tmp/envs",
 				Sources: []Source{
-					{URL: "https://github.com/example/repo.git", Branches: BranchSpec{All: true}},
+					{URL: "https://github.com/example/repo.git", BranchSelector: BranchSelector{}},
 				},
 			},
 		},
@@ -230,7 +231,7 @@ func TestValidate(t *testing.T) {
 			name: "missing cachedir",
 			cfg: Config{
 				EnvironmentDir: "/tmp/envs",
-				Sources:        []Source{{URL: "https://example.com/repo.git", Branches: BranchSpec{All: true}}},
+				Sources:        []Source{{URL: "https://example.com/repo.git", BranchSelector: BranchSelector{}}},
 			},
 			wantErr: true,
 			errMsg:  "cachedir is required",
@@ -239,7 +240,7 @@ func TestValidate(t *testing.T) {
 			name: "missing environmentdir",
 			cfg: Config{
 				CacheDir: "/tmp/cache",
-				Sources:  []Source{{URL: "https://example.com/repo.git", Branches: BranchSpec{All: true}}},
+				Sources:  []Source{{URL: "https://example.com/repo.git", BranchSelector: BranchSelector{}}},
 			},
 			wantErr: true,
 			errMsg:  "environmentdir is required",
@@ -258,20 +259,19 @@ func TestValidate(t *testing.T) {
 			cfg: Config{
 				CacheDir:       "/tmp/cache",
 				EnvironmentDir: "/tmp/envs",
-				Sources:        []Source{{Branches: BranchSpec{All: true}}},
+				Sources:        []Source{{BranchSelector: BranchSelector{}}},
 			},
 			wantErr: true,
 			errMsg:  "source url is required",
 		},
 		{
-			name: "source without branches",
+			name: "source with empty selector matches all",
 			cfg: Config{
 				CacheDir:       "/tmp/cache",
 				EnvironmentDir: "/tmp/envs",
 				Sources:        []Source{{URL: "https://example.com/repo.git"}},
 			},
-			wantErr: true,
-			errMsg:  "branches must be",
+			wantErr: false,
 		},
 		{
 			name: "environment without ref",
@@ -347,52 +347,43 @@ func TestValidate(t *testing.T) {
 	}
 }
 
-func TestBranchSpecUnmarshal(t *testing.T) {
+func TestBranchSelectorMatches(t *testing.T) {
 	tests := []struct {
 		name     string
-		input    string
-		wantAll  bool
-		wantList []string
+		selector BranchSelector
+		branch   string
+		want     bool
 	}{
-		{
-			name:    "all string",
-			input:   "branches: all",
-			wantAll: true,
-		},
-		{
-			name:     "single branch",
-			input:    "branches: main",
-			wantList: []string{"main"},
-		},
-		{
-			name:     "branch list",
-			input:    "branches:\n  - main\n  - develop",
-			wantList: []string{"main", "develop"},
-		},
+		{name: "empty matches all", selector: BranchSelector{}, branch: "anything", want: true},
+		{name: "exact match", selector: BranchSelector{MatchPatterns: []string{"production"}}, branch: "production", want: true},
+		{name: "exact no match", selector: BranchSelector{MatchPatterns: []string{"production"}}, branch: "staging", want: false},
+		{name: "glob match", selector: BranchSelector{MatchPatterns: []string{"feature/*"}}, branch: "feature/login", want: true},
+		{name: "glob no match", selector: BranchSelector{MatchPatterns: []string{"feature/*"}}, branch: "bugfix/login", want: false},
+		{name: "multiple patterns", selector: BranchSelector{MatchPatterns: []string{"production", "staging"}}, branch: "staging", want: true},
+		{name: "wildcard", selector: BranchSelector{MatchPatterns: []string{"*"}}, branch: "anything", want: true},
+		{name: "exclude", selector: BranchSelector{ExcludePatterns: []string{"wip-*"}}, branch: "wip-broken", want: false},
+		{name: "exclude no match", selector: BranchSelector{ExcludePatterns: []string{"wip-*"}}, branch: "production", want: true},
+		{name: "match and exclude", selector: BranchSelector{MatchPatterns: []string{"feature/*"}, ExcludePatterns: []string{"feature/wip-*"}}, branch: "feature/login", want: true},
+		{name: "match but excluded", selector: BranchSelector{MatchPatterns: []string{"feature/*"}, ExcludePatterns: []string{"feature/wip-*"}}, branch: "feature/wip-broken", want: false},
 	}
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var w struct {
-				Branches BranchSpec `yaml:"branches"`
-			}
-			if err := yaml.Unmarshal([]byte(tt.input), &w); err != nil {
-				t.Fatalf("unmarshal error: %v", err)
-			}
-			if w.Branches.All != tt.wantAll {
-				t.Errorf("All = %v, want %v", w.Branches.All, tt.wantAll)
-			}
-			if tt.wantList != nil {
-				if len(w.Branches.Branches) != len(tt.wantList) {
-					t.Fatalf("Branches length = %d, want %d", len(w.Branches.Branches), len(tt.wantList))
-				}
-				for i, b := range w.Branches.Branches {
-					if b != tt.wantList[i] {
-						t.Errorf("Branches[%d] = %q, want %q", i, b, tt.wantList[i])
-					}
-				}
+			got := tt.selector.Matches(tt.branch)
+			if got != tt.want {
+				t.Errorf("Matches(%q) = %v, want %v", tt.branch, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestBranchSelectorMatchesAll(t *testing.T) {
+	s := BranchSelector{}
+	if !s.MatchesAll() {
+		t.Error("empty selector should match all")
+	}
+	s = BranchSelector{MatchPatterns: []string{"main"}}
+	if s.MatchesAll() {
+		t.Error("non-empty selector should not match all")
 	}
 }
 
@@ -435,7 +426,7 @@ func TestMerge(t *testing.T) {
 			"base": {{Name: "stdlib", Git: "https://example.com/stdlib.git", Ref: "v1"}},
 		},
 		Sources: []Source{
-			{URL: "https://example.com/repo1.git", Branches: BranchSpec{All: true}},
+			{URL: "https://example.com/repo1.git", BranchSelector: BranchSelector{}},
 		},
 	}
 
@@ -445,7 +436,7 @@ func TestMerge(t *testing.T) {
 			"extra": {{Name: "apache", Git: "https://example.com/apache.git", Ref: "v2"}},
 		},
 		Sources: []Source{
-			{URL: "https://example.com/repo2.git", Branches: BranchSpec{All: true}},
+			{URL: "https://example.com/repo2.git", BranchSelector: BranchSelector{}},
 		},
 		Environments: map[string]*Environment{
 			"prod": {Ref: "main"},

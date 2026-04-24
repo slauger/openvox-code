@@ -43,6 +43,7 @@ type ResolvedEnvironment struct {
 	ControlRepoURL string
 	Ref            string
 	ModuleFiles    map[string]config.ModuleFileRequirement // path -> required|optional
+	BranchSelector *config.BranchSelector                  // for filtering during discovery
 	Modules        []ResolvedModule
 }
 
@@ -76,8 +77,8 @@ func (r *Resolver) Resolve() ([]ResolvedEnvironment, error) {
 	}
 
 	// Resolve source-based (dynamic) environments
-	for _, src := range r.cfg.Sources {
-		srcEnvs := r.resolveSourceEnvironments(src)
+	for i := range r.cfg.Sources {
+		srcEnvs := r.resolveSourceEnvironments(&r.cfg.Sources[i])
 		envs = append(envs, srcEnvs...)
 	}
 
@@ -99,8 +100,15 @@ func (r *Resolver) ExpandDiscovery(ctx context.Context, envs []ResolvedEnvironme
 			return nil, fmt.Errorf("discovering branches for %s: %w", env.ControlRepoURL, err)
 		}
 
-		r.log.Info("discovered branches", "url", env.ControlRepoURL, "count", len(branches))
+		r.log.Info("discovered branches", "url", env.ControlRepoURL, "total", len(branches))
+		matched := 0
 		for _, branch := range branches {
+			// Filter through branchSelector if present
+			if env.BranchSelector != nil && !env.BranchSelector.Matches(branch) {
+				r.log.Debug("branch excluded by selector", "branch", branch)
+				continue
+			}
+			matched++
 			r.log.Debug("discovered environment", "branch", branch, "url", env.ControlRepoURL)
 			result = append(result, ResolvedEnvironment{
 				Name:           branch,
@@ -109,6 +117,7 @@ func (r *Resolver) ExpandDiscovery(ctx context.Context, envs []ResolvedEnvironme
 				ModuleFiles:    env.ModuleFiles,
 			})
 		}
+		r.log.Info("matched branches", "url", env.ControlRepoURL, "matched", matched, "total", len(branches))
 	}
 	return result, nil
 }
@@ -160,8 +169,18 @@ func (r *Resolver) resolveStaticEnvironment(name string, env *config.Environment
 	}, nil
 }
 
+// containsGlob returns true if the pattern contains glob metacharacters.
+func containsGlob(pattern string) bool {
+	for _, c := range pattern {
+		if c == '*' || c == '?' || c == '[' {
+			return true
+		}
+	}
+	return false
+}
+
 // buildModuleFiles merges the deprecated modulefile field with the new modulefiles map.
-func buildModuleFiles(src config.Source) map[string]config.ModuleFileRequirement {
+func buildModuleFiles(src *config.Source) map[string]config.ModuleFileRequirement {
 	mf := make(map[string]config.ModuleFileRequirement)
 
 	// New format takes precedence
@@ -179,24 +198,51 @@ func buildModuleFiles(src config.Source) map[string]config.ModuleFileRequirement
 	return mf
 }
 
-func (r *Resolver) resolveSourceEnvironments(src config.Source) []ResolvedEnvironment {
+func (r *Resolver) resolveSourceEnvironments(src *config.Source) []ResolvedEnvironment {
 	gitURL := r.cfg.ResolveGitURL(src.URL)
 	moduleFiles := buildModuleFiles(src)
 
-	if src.Branches.All {
-		// Branch discovery will happen after fetching
+	selector := src.BranchSelector
+
+	// If branchSelector has no matchPatterns, it matches all → needs discovery
+	if selector.MatchesAll() {
 		return []ResolvedEnvironment{
 			{
 				Name:           "__source_discovery__",
 				ControlRepoURL: gitURL,
 				Ref:            "__all__",
 				ModuleFiles:    moduleFiles,
+				BranchSelector: &selector,
 			},
 		}
 	}
 
-	envs := make([]ResolvedEnvironment, 0, len(src.Branches.Branches))
-	for _, branch := range src.Branches.Branches {
+	// matchPatterns with globs also need discovery (filtering happens in ExpandDiscovery)
+	// Only static exact-match patterns can be resolved without discovery
+	hasGlobs := false
+	for _, p := range src.BranchSelector.MatchPatterns {
+		if containsGlob(p) {
+			hasGlobs = true
+			break
+		}
+	}
+
+	if hasGlobs {
+		// Needs discovery to expand globs against actual branches
+		return []ResolvedEnvironment{
+			{
+				Name:           "__source_discovery__",
+				ControlRepoURL: gitURL,
+				Ref:            "__patterns__",
+				ModuleFiles:    moduleFiles,
+				BranchSelector: &selector,
+			},
+		}
+	}
+
+	// Exact branch names — no discovery needed
+	envs := make([]ResolvedEnvironment, 0, len(src.BranchSelector.MatchPatterns))
+	for _, branch := range src.BranchSelector.MatchPatterns {
 		envs = append(envs, ResolvedEnvironment{
 			Name:           branch,
 			ControlRepoURL: gitURL,

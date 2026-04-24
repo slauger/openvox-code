@@ -10,7 +10,22 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Config represents the top-level openvox-code configuration.
+const (
+	// APIVersion is the current config API version.
+	APIVersion = "openvox.voxpupuli.org/v1alpha1"
+	// KindCodeConfig is the kind for the main configuration.
+	KindCodeConfig = "CodeConfig"
+)
+
+// Document represents a Kubernetes-style YAML document with apiVersion/kind envelope.
+type Document struct {
+	APIVersion string    `yaml:"apiVersion"`
+	Kind       string    `yaml:"kind"`
+	Spec       Config    `yaml:"spec"`
+	RawSpec    yaml.Node `yaml:"-"` // for lazy parsing
+}
+
+// Config represents the openvox-code configuration (the spec contents).
 type Config struct {
 	Includes       []string                `yaml:"includes,omitempty"`
 	CacheDir       string                  `yaml:"cachedir"`
@@ -36,37 +51,53 @@ const (
 
 // Source defines a control repository for branch-based environment discovery.
 type Source struct {
-	URL         string                           `yaml:"url"`
-	Branches    BranchSpec                       `yaml:"branches"`
-	ModuleFile  string                           `yaml:"modulefile,omitempty"`  // Deprecated: use modulefiles
-	ModuleFiles map[string]ModuleFileRequirement `yaml:"modulefiles,omitempty"` // path -> required|optional
+	URL            string                           `yaml:"url"`
+	BranchSelector BranchSelector                   `yaml:"branchSelector"`
+	ModuleFile     string                           `yaml:"modulefile,omitempty"`  // Deprecated: use modulefiles
+	ModuleFiles    map[string]ModuleFileRequirement `yaml:"modulefiles,omitempty"` // path -> required|optional
 }
 
-// BranchSpec can be "all" or a list of specific branch names.
-type BranchSpec struct {
-	All      bool
-	Branches []string
+// BranchSelector defines which branches to include or exclude using glob patterns.
+type BranchSelector struct {
+	MatchPatterns   []string `yaml:"matchPatterns,omitempty"`   // Glob patterns to include (empty = all)
+	ExcludePatterns []string `yaml:"excludePatterns,omitempty"` // Glob patterns to exclude
 }
 
-// UnmarshalYAML implements custom YAML unmarshaling for branch specifications.
-func (b *BranchSpec) UnmarshalYAML(value *yaml.Node) error {
-	if value.Kind == yaml.ScalarNode {
-		if value.Value == "all" {
-			b.All = true
-			return nil
-		}
-		b.Branches = []string{value.Value}
-		return nil
+// MatchesAll returns true if the selector matches all branches (no patterns specified).
+func (bs *BranchSelector) MatchesAll() bool {
+	return len(bs.MatchPatterns) == 0
+}
+
+// Matches returns true if the given branch name matches the selector.
+func (bs *BranchSelector) Matches(branch string) bool {
+	// If no match patterns, include everything
+	if len(bs.MatchPatterns) == 0 {
+		return !bs.isExcluded(branch)
 	}
-	if value.Kind == yaml.SequenceNode {
-		var branches []string
-		if err := value.Decode(&branches); err != nil {
-			return fmt.Errorf("decoding branches: %w", err)
+
+	// Check if branch matches any include pattern
+	matched := false
+	for _, pattern := range bs.MatchPatterns {
+		if ok, _ := filepath.Match(pattern, branch); ok {
+			matched = true
+			break
 		}
-		b.Branches = branches
-		return nil
 	}
-	return fmt.Errorf("branches must be a string or list of strings")
+
+	if !matched {
+		return false
+	}
+
+	return !bs.isExcluded(branch)
+}
+
+func (bs *BranchSelector) isExcluded(branch string) bool {
+	for _, pattern := range bs.ExcludePatterns {
+		if ok, _ := filepath.Match(pattern, branch); ok {
+			return true
+		}
+	}
+	return false
 }
 
 // Module defines a Puppet module to be deployed.
@@ -101,7 +132,7 @@ type Environment struct {
 // ModuleFile represents a per-environment module list read from a control repo branch.
 type ModuleFile struct {
 	Modules []Module `yaml:"modules"`
-	Exclude []string `yaml:"exclude,omitempty"` // Global module names to exclude from this environment
+	Exclude []string `yaml:"exclude,omitempty"`
 }
 
 // Overrides contains global override settings.
@@ -124,16 +155,17 @@ type OCIConfig struct {
 	AuthConfig string `yaml:"auth_config,omitempty"`
 }
 
-// Load reads and parses the configuration file, processing includes.
+// Load reads and parses the configuration file.
+// It supports both Kubernetes-style (apiVersion/kind/spec) and flat formats.
 func Load(path string) (*Config, error) {
 	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		return nil, fmt.Errorf("reading config file: %w", err)
 	}
 
-	var cfg Config
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("parsing config file: %w", err)
+	cfg, err := parse(data)
+	if err != nil {
+		return nil, fmt.Errorf("parsing config file %s: %w", path, err)
 	}
 
 	if len(cfg.Includes) > 0 {
@@ -143,7 +175,41 @@ func Load(path string) (*Config, error) {
 		}
 	}
 
+	return cfg, nil
+}
+
+// parse detects format and parses configuration data.
+func parse(data []byte) (*Config, error) {
+	// Try Kubernetes-style first: peek for apiVersion field
+	var probe struct {
+		APIVersion string `yaml:"apiVersion"`
+		Kind       string `yaml:"kind"`
+	}
+	if err := yaml.Unmarshal(data, &probe); err == nil && probe.APIVersion != "" {
+		return parseK8sStyle(data, probe.APIVersion, probe.Kind)
+	}
+
+	// Fall back to flat format
+	var cfg Config
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return nil, err
+	}
 	return &cfg, nil
+}
+
+func parseK8sStyle(data []byte, apiVersion, kind string) (*Config, error) {
+	if apiVersion != APIVersion {
+		return nil, fmt.Errorf("unsupported apiVersion %q (expected %q)", apiVersion, APIVersion)
+	}
+	if kind != KindCodeConfig {
+		return nil, fmt.Errorf("unsupported kind %q (expected %q)", kind, KindCodeConfig)
+	}
+
+	var doc Document
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return nil, err
+	}
+	return &doc.Spec, nil
 }
 
 // processIncludes reads and merges included configuration files.
@@ -166,8 +232,8 @@ func (c *Config) processIncludes(baseDir string) error {
 				return fmt.Errorf("reading include %q: %w", match, err)
 			}
 
-			var inc Config
-			if err := yaml.Unmarshal(data, &inc); err != nil {
+			inc, err := parse(data)
+			if err != nil {
 				return fmt.Errorf("parsing include %q: %w", match, err)
 			}
 
@@ -175,7 +241,7 @@ func (c *Config) processIncludes(baseDir string) error {
 				return fmt.Errorf("include %q contains nested includes (not supported)", match)
 			}
 
-			c.merge(&inc)
+			c.merge(inc)
 		}
 	}
 	return nil
@@ -183,7 +249,6 @@ func (c *Config) processIncludes(baseDir string) error {
 
 // merge deep-merges another config into this one.
 func (c *Config) merge(other *Config) {
-	// Scalars: later overrides earlier
 	if other.CacheDir != "" {
 		c.CacheDir = other.CacheDir
 	}
@@ -217,10 +282,8 @@ func (c *Config) merge(other *Config) {
 		c.OCI = other.OCI
 	}
 
-	// Lists: concatenate
 	c.Sources = append(c.Sources, other.Sources...)
 
-	// Maps: merge recursively
 	if len(other.ModuleSets) > 0 {
 		if c.ModuleSets == nil {
 			c.ModuleSets = make(map[string][]Module)
@@ -256,9 +319,6 @@ func (c *Config) Validate() error {
 	for _, src := range c.Sources {
 		if src.URL == "" {
 			return fmt.Errorf("source url is required")
-		}
-		if !src.Branches.All && len(src.Branches.Branches) == 0 {
-			return fmt.Errorf("source %q: branches must be 'all' or a list", src.URL)
 		}
 	}
 
@@ -296,9 +356,7 @@ func (c *Config) Validate() error {
 }
 
 // ResolveGitURL applies mirror overrides to a Git URL if configured.
-// It checks gitmirrors (host-specific map) first, then falls back to gitmirror (global).
 func (c *Config) ResolveGitURL(gitURL string) string {
-	// Check host-specific mirrors first
 	if len(c.Overrides.GitMirrors) > 0 {
 		for host, mirror := range c.Overrides.GitMirrors {
 			if hostMatches(gitURL, host) {
@@ -307,7 +365,6 @@ func (c *Config) ResolveGitURL(gitURL string) string {
 		}
 	}
 
-	// Fall back to global mirror
 	if c.Overrides.GitMirror != "" {
 		return rewriteGitURL(gitURL, c.Overrides.GitMirror)
 	}

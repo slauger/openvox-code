@@ -1,105 +1,112 @@
-# openvox-code example configuration
-# See https://slauger.github.io/openvox-code/reference/configuration/ for full reference.
+apiVersion: openvox.voxpupuli.org/v1alpha1
+kind: CodeConfig
+spec:
+  # Required: directory for bare clone Git caches
+  cachedir: /var/cache/openvox-code
 
-# Required: directory for bare clone Git caches
-cachedir: /var/cache/openvox-code
+  # Required: staging directory for Puppet environments
+  # For OCI workflow (recommended): use a temp directory, environments are packaged into an image
+  # For legacy workflow (like r10k): use /etc/puppetlabs/code/environments
+  environmentdir: /tmp/openvox-code/environments
 
-# Required: staging directory for Puppet environments
-# For OCI workflow (recommended): use a temp directory, environments are packaged into an image
-# For legacy workflow (like r10k): use /etc/puppetlabs/code/environments
-environmentdir: /tmp/openvox-code/environments
+  # Control repository sources for branch-based environment discovery
+  # The branch content (manifests/, hieradata/, data/) is checked out as the environment base.
+  sources:
+    - url: https://github.com/example/puppet-control-repo.git
 
-# Optional: control repository sources for branch-based environment discovery
-# Each branch becomes a Puppet environment automatically.
-# The branch content (manifests/, hieradata/, data/) is checked out as the environment base.
-# If modulefile is set, modules are read from that file inside each branch.
-sources:
-  - url: https://github.com/example/puppet-control-repo.git
-    branches: all
-    modulefile: modules.yaml  # per-branch module definitions
-    # Or specify branches explicitly:
-    # branches:
-    #   - production
-    #   - staging
-    #   - development
+      # Branch selector with glob pattern matching
+      # Empty selector = all branches (like r10k branches: all)
+      branchSelector:
+        matchPatterns:
+          - "production"
+          - "staging"
+          - "feature/*"      # all feature branches
+          - "release-*"      # all release branches
+        excludePatterns:
+          - "feature/wip-*"  # exclude work-in-progress branches
 
-# Optional: reusable named groups of modules
-# These are deployed globally unless excluded per-environment via modules.yaml
-modulesets:
-  base:
-    - name: stdlib
-      git: https://github.com/puppetlabs/puppetlabs-stdlib.git
-      ref: v9.7.0
-    - name: concat
-      git: https://github.com/puppetlabs/puppetlabs-concat.git
-      ref: v9.1.0
-    - name: firewall
-      git: https://github.com/puppetlabs/puppetlabs-firewall.git
-      ref: v8.1.3
+      # Per-branch module files (read from inside the checked-out branch)
+      # Each branch can define its own modules, overriding global modulesets
+      modulefiles:
+        modules.yaml: required      # sync fails if missing
+        team-overrides.yaml: optional  # silently skipped if missing
 
-  webservers:
-    - name: apache
-      git: https://github.com/puppetlabs/puppetlabs-apache.git
-      ref: v12.2.0
-    - name: nginx
-      git: https://github.com/puppet/puppet-nginx.git
-      ref: v5.0.0
+  # Reusable named groups of modules (deployed globally unless excluded per-environment)
+  modulesets:
+    base:
+      - name: stdlib
+        git: https://github.com/puppetlabs/puppetlabs-stdlib.git
+        ref: v9.7.0
+      - name: concat
+        git: https://github.com/puppetlabs/puppetlabs-concat.git
+        ref: v9.1.0
+      - name: firewall
+        git: https://github.com/puppetlabs/puppetlabs-firewall.git
+        ref: v8.1.3
 
-# Optional: explicitly declared environments (overrides branch discovery)
-environments:
-  production:
-    ref: v1.5.0
-    modulesets:
-      - base
-      - webservers
-  staging:
-    ref: staging
-    modulesets:
-      - base
-    modules:
-      # Custom target directory: install into site-modules/ instead of modules/
-      - name: myapp
-        git: https://github.com/example/puppet-myapp.git
-        ref: main
-        target_dir: site-modules  # parent directory (default: "modules")
-      # Custom install name: directory name differs from module name
+    webservers:
       - name: apache
         git: https://github.com/puppetlabs/puppetlabs-apache.git
-        ref: main
-        install_as: httpd  # installed as modules/httpd/ instead of modules/apache/
+        ref: v12.2.0
+      - name: nginx
+        git: https://github.com/puppet/puppet-nginx.git
+        ref: v5.0.0
 
-# Per-branch module file (modules.yaml inside the control repo):
-#
-# modules:
-#   - name: stdlib
-#     git: https://github.com/puppetlabs/puppetlabs-stdlib.git
-#     ref: v9.7.0
-#   - name: myapp
-#     git: https://github.com/example/puppet-myapp.git
-#     ref: main
-#     target_dir: site-modules
-#
-# exclude:
-#   - firewall  # remove this global module from this environment
+  # Explicitly declared environments (overrides branch discovery)
+  environments:
+    production:
+      ref: v1.5.0
+      modulesets:
+        - base
+        - webservers
+    staging:
+      ref: staging
+      modulesets:
+        - base
+      modules:
+        # Custom target directory: install into site-modules/ instead of modules/
+        - name: myapp
+          git: https://github.com/example/puppet-myapp.git
+          ref: main
+          target_dir: site-modules
+        # Custom install name: directory name differs from module name
+        - name: apache
+          git: https://github.com/puppetlabs/puppetlabs-apache.git
+          ref: main
+          install_as: httpd  # installed as modules/httpd/
 
-# Optional: Git authentication
-# git:
-#   ssh_key: /path/to/id_ed25519
-#   ssh_known_hosts: /path/to/known_hosts
-#   credential_helper: store  # or: cache, /path/to/helper
+  # Per-branch module file format (modules.yaml inside the control repo):
+  #
+  # modules:
+  #   - name: stdlib
+  #     git: https://github.com/puppetlabs/puppetlabs-stdlib.git
+  #     ref: v9.7.0
+  #   - name: myapp
+  #     git: https://github.com/example/puppet-myapp.git
+  #     ref: main
+  #     target_dir: site-modules
+  #
+  # exclude:
+  #   - firewall  # remove this global module from this environment
 
-# Optional: host-specific Git mirrors (checked before global fallback)
-# overrides:
-#   gitmirrors:
-#     github.com: https://github-mirror.internal.example.com
-#     gitlab.com: https://gitlab-mirror.internal.example.com
-#   gitmirror: https://fallback-mirror.internal.example.com  # global fallback
+  # Git authentication
+  # git:
+  #   ssh_key: /path/to/id_ed25519
+  #   ssh_known_hosts: /path/to/known_hosts
+  #   credential_helper: store
 
-# Optional: skip network operations (deploy from cache only)
-# offline: true
+  # Host-specific Git mirrors (checked before global fallback)
+  # overrides:
+  #   gitmirrors:
+  #     github.com: https://github-mirror.internal.example.com
+  #     gitlab.com: https://gitlab-mirror.internal.example.com
+  #   gitmirror: https://fallback-mirror.internal.example.com
 
-# Optional: OCI image output (for use with openvox-operator)
-# oci:
-#   registry: ghcr.io/example/puppet-environments
-#   tag: latest
-#   auth_config: /path/to/docker/config.json  # or use $DOCKER_CONFIG
+  # Skip network operations (deploy from cache only)
+  # offline: true
+
+  # OCI image output (for use with openvox-operator)
+  # oci:
+  #   registry: ghcr.io/example/puppet-environments
+  #   tag: latest
+  #   auth_config: /path/to/docker/config.json

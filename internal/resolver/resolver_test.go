@@ -167,8 +167,8 @@ func TestResolveSourceBranches(t *testing.T) {
 		EnvironmentDir: "/tmp/envs",
 		Sources: []config.Source{
 			{
-				URL:      "https://github.com/example/control-repo.git",
-				Branches: config.BranchSpec{Branches: []string{"production", "staging"}},
+				URL:            "https://github.com/example/control-repo.git",
+				BranchSelector: config.BranchSelector{MatchPatterns: []string{"production", "staging"}},
 			},
 		},
 	}
