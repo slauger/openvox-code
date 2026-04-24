@@ -19,12 +19,12 @@ type Fetcher struct {
 }
 
 // New creates a new Fetcher.
-func New(cache *cache.Manager, parallel int, log *slog.Logger) *Fetcher {
+func New(cm *cache.Manager, parallel int, log *slog.Logger) *Fetcher {
 	if parallel < 1 {
 		parallel = 1
 	}
 	return &Fetcher{
-		cache:    cache,
+		cache:    cm,
 		parallel: parallel,
 		log:      log,
 	}

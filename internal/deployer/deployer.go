@@ -50,10 +50,10 @@ type Deployer struct {
 }
 
 // New creates a new Deployer.
-func New(envDir string, cache *cache.Manager, log *slog.Logger) *Deployer {
+func New(envDir string, cm *cache.Manager, log *slog.Logger) *Deployer {
 	return &Deployer{
 		envDir: envDir,
-		cache:  cache,
+		cache:  cm,
 		log:    log,
 	}
 }
