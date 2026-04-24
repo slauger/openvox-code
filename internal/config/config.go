@@ -125,10 +125,48 @@ type Environment struct {
 	Modules    []Module `yaml:"modules,omitempty"`
 }
 
-// ModuleFile represents a per-environment module list read from a control repo branch.
-type ModuleFile struct {
+// KindModuleFile is the kind for per-branch module files.
+const KindModuleFile = "ModuleFile"
+
+// ModuleFileDocument is the K8s-style envelope for a module file.
+type ModuleFileDocument struct {
+	APIVersion string         `yaml:"apiVersion"`
+	Kind       string         `yaml:"kind"`
+	Spec       ModuleFileSpec `yaml:"spec"`
+}
+
+// ModuleFileSpec is the contents of a per-branch module file.
+type ModuleFileSpec struct {
 	Modules []Module `yaml:"modules"`
 	Exclude []string `yaml:"exclude,omitempty"`
+}
+
+// ParseModuleFile parses a per-branch module file, supporting both K8s-style and flat formats.
+func ParseModuleFile(data []byte) (*ModuleFileSpec, error) {
+	var probe struct {
+		APIVersion string `yaml:"apiVersion"`
+		Kind       string `yaml:"kind"`
+	}
+	if err := yaml.Unmarshal(data, &probe); err == nil && probe.APIVersion != "" {
+		if probe.APIVersion != APIVersion {
+			return nil, fmt.Errorf("unsupported apiVersion %q (expected %q)", probe.APIVersion, APIVersion)
+		}
+		if probe.Kind != KindModuleFile {
+			return nil, fmt.Errorf("unsupported kind %q (expected %q)", probe.Kind, KindModuleFile)
+		}
+		var doc ModuleFileDocument
+		if err := yaml.Unmarshal(data, &doc); err != nil {
+			return nil, err
+		}
+		return &doc.Spec, nil
+	}
+
+	// Flat format fallback
+	var spec ModuleFileSpec
+	if err := yaml.Unmarshal(data, &spec); err != nil {
+		return nil, err
+	}
+	return &spec, nil
 }
 
 // Overrides contains global override settings.

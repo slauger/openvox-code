@@ -98,7 +98,7 @@ func (b *Builder) Build(opts *Options) (v1.Image, error) {
 	b.log.Info("image built successfully")
 
 	if opts.Push {
-		if err := b.push(img, opts); err != nil {
+		if err := b.Push(img, opts.Registry, opts.Tag, opts.AuthConfig); err != nil {
 			return nil, err
 		}
 	}
@@ -161,13 +161,14 @@ func (b *Builder) createLayer(envDir string) (v1.Layer, error) {
 	return layer, nil
 }
 
-func (b *Builder) push(img v1.Image, opts *Options) error {
-	ref := fmt.Sprintf("%s:%s", opts.Registry, opts.Tag)
+// Push pushes an OCI image to a container registry.
+func (b *Builder) Push(img v1.Image, registry, tag, authConfig string) error {
+	ref := fmt.Sprintf("%s:%s", registry, tag)
 	b.log.Info("pushing image", "ref", ref)
 
 	var craneOpts []crane.Option
-	if opts.AuthConfig != "" {
-		b.log.Debug("using auth config", "path", opts.AuthConfig)
+	if authConfig != "" {
+		b.log.Debug("using auth config", "path", authConfig)
 	}
 
 	if err := crane.Push(img, ref, craneOpts...); err != nil {

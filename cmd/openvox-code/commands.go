@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 
 	"github.com/slauger/openvox-code/internal/builder"
 	"github.com/slauger/openvox-code/internal/cache"
@@ -279,10 +280,39 @@ var validateCmd = &cobra.Command{
 	},
 }
 
+// parseImageRef splits "registry/image:tag" into registry and tag parts.
+// If no tag is specified, defaults to "latest".
+func parseImageRef(ref string) (registry, tag string) {
+	if i := strings.LastIndex(ref, ":"); i > 0 && !strings.Contains(ref[i:], "/") {
+		return ref[:i], ref[i+1:]
+	}
+	return ref, "latest"
+}
+
+// resolveImageRef determines the full image reference from -t flag, config, or defaults.
+func resolveImageRef(flagRef string, cfg *config.Config) (registry, tag string) {
+	if flagRef != "" {
+		return parseImageRef(flagRef)
+	}
+	if cfg.OCI != nil && cfg.OCI.Registry != "" {
+		tag = cfg.OCI.Tag
+		if tag == "" {
+			tag = "latest"
+		}
+		return cfg.OCI.Registry, tag
+	}
+	return "", "latest"
+}
+
 var buildCmd = &cobra.Command{
 	Use:   "build",
 	Short: "Build OCI container image",
-	Long:  "Build an OCI container image containing the deployed environments.",
+	Long: `Build an OCI container image containing the deployed environments.
+
+Examples:
+  openvox-code build -t ghcr.io/example/puppet-envs:v1.0.0
+  openvox-code build -t ghcr.io/example/puppet-envs:v1.0.0 --push
+  openvox-code build                                          # uses oci.registry from config`,
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		log := setupLogger()
 		cfg, err := loadConfig()
@@ -290,23 +320,13 @@ var buildCmd = &cobra.Command{
 			return err
 		}
 
-		tag, _ := cmd.Flags().GetString("tag")
-		registry, _ := cmd.Flags().GetString("registry")
+		flagRef, _ := cmd.Flags().GetString("tag")
 		push, _ := cmd.Flags().GetBool("push")
 
-		if registry == "" && cfg.OCI != nil {
-			registry = cfg.OCI.Registry
-		}
-		if tag == "" {
-			if cfg.OCI != nil && cfg.OCI.Tag != "" {
-				tag = cfg.OCI.Tag
-			} else {
-				tag = "latest"
-			}
-		}
+		registry, tag := resolveImageRef(flagRef, cfg)
 
 		if push && registry == "" {
-			return fmt.Errorf("--registry or oci.registry in config is required for push")
+			return fmt.Errorf("image reference required: use -t <registry>:<tag> or set oci.registry in config")
 		}
 
 		var authConfig string
@@ -335,6 +355,51 @@ var buildCmd = &cobra.Command{
 		}
 
 		return nil
+	},
+}
+
+var pushCmd = &cobra.Command{
+	Use:   "push [image:tag]",
+	Short: "Push an OCI image to a registry",
+	Long: `Push a previously built OCI image to a container registry.
+
+Examples:
+  openvox-code push ghcr.io/example/puppet-envs:v1.0.0
+  openvox-code push                                       # uses oci.registry from config`,
+	RunE: func(_ *cobra.Command, args []string) error {
+		log := setupLogger()
+		cfg, err := loadConfig()
+		if err != nil {
+			return err
+		}
+
+		var ref string
+		if len(args) > 0 {
+			ref = args[0]
+		}
+
+		registry, tag := resolveImageRef(ref, cfg)
+		if registry == "" {
+			return fmt.Errorf("image reference required: openvox-code push <registry>:<tag>")
+		}
+
+		var authConfig string
+		if cfg.OCI != nil && cfg.OCI.AuthConfig != "" {
+			authConfig = cfg.OCI.AuthConfig
+		}
+
+		b := builder.New(log)
+		img, err := b.Build(&builder.Options{
+			EnvironmentDir: cfg.EnvironmentDir,
+			Registry:       registry,
+			Tag:            tag,
+			AuthConfig:     authConfig,
+		})
+		if err != nil {
+			return fmt.Errorf("building image: %w", err)
+		}
+
+		return b.Push(img, registry, tag, authConfig)
 	},
 }
 
@@ -446,7 +511,6 @@ func init() {
 	deployCmd.Flags().Bool("clean", false, "remove environments not in config")
 	deployCmd.Flags().StringSlice("environment", nil, "only deploy specific environments (can be repeated)")
 	validateCmd.Flags().Bool("offline", false, "skip network checks, validate syntax only")
-	buildCmd.Flags().String("tag", "", "image tag")
-	buildCmd.Flags().String("registry", "", "override OCI registry URL")
+	buildCmd.Flags().StringP("tag", "t", "", "image reference (registry/image:tag)")
 	buildCmd.Flags().Bool("push", false, "push image after building")
 }

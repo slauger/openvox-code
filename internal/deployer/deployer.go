@@ -15,7 +15,6 @@ import (
 	"github.com/slauger/openvox-code/internal/cache"
 	"github.com/slauger/openvox-code/internal/config"
 	"github.com/slauger/openvox-code/internal/resolver"
-	"gopkg.in/yaml.v3"
 )
 
 // Change describes a deployment difference.
@@ -324,15 +323,16 @@ type parsedModuleFile struct {
 }
 
 // readModuleFile reads a YAML module list from a file inside a checked-out environment.
+// Supports both K8s-style (apiVersion/kind/spec) and flat formats.
 func (d *Deployer) readModuleFile(path string) (*parsedModuleFile, error) {
 	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		return nil, err
 	}
 
-	var mf config.ModuleFile
-	if err := yaml.Unmarshal(data, &mf); err != nil {
-		return nil, fmt.Errorf("parsing module file: %w", err)
+	mf, err := config.ParseModuleFile(data)
+	if err != nil {
+		return nil, fmt.Errorf("parsing module file %s: %w", path, err)
 	}
 
 	modules := make([]resolver.ResolvedModule, 0, len(mf.Modules))

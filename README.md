@@ -126,16 +126,19 @@ spec:
 Per-branch module file (`modules.yaml` inside the control repo):
 
 ```yaml
-modules:
-  - name: stdlib
-    git: https://github.com/puppetlabs/puppetlabs-stdlib.git
-    ref: v9.7.0
-  - name: profiles
-    git: https://github.com/example/puppet-profiles.git
-    follow_branch: true
-    ref: main
-exclude:
-  - firewall  # remove this global module from this environment
+apiVersion: openvox.voxpupuli.org/v1alpha1
+kind: ModuleFile
+spec:
+  modules:
+    - name: stdlib
+      git: https://github.com/puppetlabs/puppetlabs-stdlib.git
+      ref: v9.7.0
+    - name: profiles
+      git: https://github.com/example/puppet-profiles.git
+      follow_branch: true
+      ref: main
+  exclude:
+    - firewall  # remove this global module from this environment
 ```
 
 ## Commands

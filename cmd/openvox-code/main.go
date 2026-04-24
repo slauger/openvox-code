@@ -64,6 +64,7 @@ func init() {
 	rootCmd.AddCommand(diffCmd)
 	rootCmd.AddCommand(validateCmd)
 	rootCmd.AddCommand(buildCmd)
+	rootCmd.AddCommand(pushCmd)
 	rootCmd.AddCommand(lockCmd)
 }
 

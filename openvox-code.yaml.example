@@ -77,35 +77,33 @@ spec:
 
   # Per-branch module file format (modules.yaml inside the control repo):
   #
-  # modules:
-  #   # Pinned version
-  #   - name: stdlib
-  #     git: https://github.com/puppetlabs/puppetlabs-stdlib.git
-  #     ref: v9.7.0
+  # apiVersion: openvox.voxpupuli.org/v1alpha1
+  # kind: ModuleFile
+  # spec:
+  #   modules:
+  #     # Pinned version
+  #     - name: stdlib
+  #       git: https://github.com/puppetlabs/puppetlabs-stdlib.git
+  #       ref: v9.7.0
   #
-  #   # Always HEAD (no ref = default branch of the repo)
-  #   - name: internal_module
-  #     git: https://git.internal/puppet/internal.git
+  #     # Always HEAD (no ref = default branch of the repo)
+  #     - name: internal_module
+  #       git: https://git.internal/puppet/internal.git
   #
-  #   # follow_branch: try environment branch first, ref as fallback
-  #   - name: profiles
-  #     git: https://github.com/example/puppet-profiles.git
-  #     follow_branch: true
-  #     ref: main
+  #     # follow_branch: try environment branch first, ref as fallback
+  #     - name: profiles
+  #       git: https://github.com/example/puppet-profiles.git
+  #       follow_branch: true
+  #       ref: main
   #
-  #   # follow_branch without fallback (HEAD if branch missing)
-  #   - name: roles
-  #     git: https://github.com/example/puppet-roles.git
-  #     follow_branch: true
+  #     # Custom target directory
+  #     - name: myapp
+  #       git: https://github.com/example/puppet-myapp.git
+  #       ref: main
+  #       target_dir: site-modules
   #
-  #   # Custom target directory
-  #   - name: myapp
-  #     git: https://github.com/example/puppet-myapp.git
-  #     ref: main
-  #     target_dir: site-modules
-  #
-  # exclude:
-  #   - firewall  # remove this global module from this environment
+  #   exclude:
+  #     - firewall  # remove this global module from this environment
 
   # Git authentication
   # git:
