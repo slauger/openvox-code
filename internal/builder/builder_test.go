@@ -27,11 +27,11 @@ func createTestEnvironments(t *testing.T, dir string) {
 
 	for path, files := range envs {
 		fullPath := filepath.Join(dir, path)
-		if err := os.MkdirAll(fullPath, 0o755); err != nil {
+		if err := os.MkdirAll(fullPath, 0o750); err != nil {
 			t.Fatal(err)
 		}
 		for name, content := range files {
-			if err := os.WriteFile(filepath.Join(fullPath, name), []byte(content), 0o644); err != nil {
+			if err := os.WriteFile(filepath.Join(fullPath, name), []byte(content), 0o600); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -151,7 +151,10 @@ func TestBuildLayerContents(t *testing.T) {
 		t.Fatalf("Build() error = %v", err)
 	}
 
-	layers, _ := img.Layers()
+	layers, err := img.Layers()
+	if err != nil {
+		t.Fatalf("Layers() error = %v", err)
+	}
 	if len(layers) == 0 {
 		t.Fatal("no layers")
 	}
@@ -160,7 +163,11 @@ func TestBuildLayerContents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Uncompressed() error = %v", err)
 	}
-	defer rc.Close()
+	defer func() {
+		if err := rc.Close(); err != nil {
+			t.Errorf("closing layer reader: %v", err)
+		}
+	}()
 
 	tr := tar.NewReader(rc)
 	var foundFiles []string

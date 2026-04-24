@@ -85,7 +85,9 @@ func TestLoadNotFound(t *testing.T) {
 func TestLoadInvalidYAML(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "bad.lock")
-	os.WriteFile(path, []byte("{{invalid"), 0o644)
+	if err := os.WriteFile(path, []byte("{{invalid"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 
 	_, err := Load(path)
 	if err == nil {
@@ -96,7 +98,9 @@ func TestLoadInvalidYAML(t *testing.T) {
 func TestLoadUnsupportedVersion(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "v99.lock")
-	os.WriteFile(path, []byte("version: 99\nenvironments: {}"), 0o644)
+	if err := os.WriteFile(path, []byte("version: 99\nenvironments: {}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 
 	_, err := Load(path)
 	if err == nil {
@@ -130,14 +134,24 @@ func TestSaveDeterministic(t *testing.T) {
 	}
 
 	lf1 := NewFromResolved(envs)
-	lf1.Save(path1)
+	if err := lf1.Save(path1); err != nil {
+		t.Fatalf("Save(path1) error = %v", err)
+	}
 
 	// Create again and save
 	lf2 := NewFromResolved(envs)
-	lf2.Save(path2)
+	if err := lf2.Save(path2); err != nil {
+		t.Fatalf("Save(path2) error = %v", err)
+	}
 
-	data1, _ := os.ReadFile(path1)
-	data2, _ := os.ReadFile(path2)
+	data1, err := os.ReadFile(filepath.Clean(path1))
+	if err != nil {
+		t.Fatalf("ReadFile(path1) error = %v", err)
+	}
+	data2, err := os.ReadFile(filepath.Clean(path2))
+	if err != nil {
+		t.Fatalf("ReadFile(path2) error = %v", err)
+	}
 
 	// Remove the generated_at line (timestamps differ)
 	lines1 := filterLines(string(data1), "generated_at")

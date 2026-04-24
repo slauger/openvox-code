@@ -1,51 +1,47 @@
 package cache
 
 import (
+	"context"
 	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
+// runGit runs a git command with fixed, known-safe subcommands for test setup.
+func runGit(t *testing.T, args ...string) {
+	t.Helper()
+	cmd := exec.CommandContext(context.Background(), "git", args...) // #nosec G204 -- test-only
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v failed: %s\n%s", args, err, out)
+	}
+}
+
 // createTestRepo creates a bare Git repo with a single commit and returns its path.
-func createTestRepo(t *testing.T, dir, name string) string {
+func createTestRepo(t *testing.T, dir string) string {
 	t.Helper()
 
-	workDir := filepath.Join(dir, name+"-work")
-	bareDir := filepath.Join(dir, name+".git")
+	workDir := filepath.Join(dir, "test-module-work")
+	bareDir := filepath.Join(dir, "test-module.git")
 
-	if err := os.MkdirAll(workDir, 0o755); err != nil {
+	if err := os.MkdirAll(workDir, 0o750); err != nil {
 		t.Fatal(err)
 	}
 
-	cmds := [][]string{
-		{"git", "init", workDir},
-		{"git", "-C", workDir, "config", "user.email", "test@test.com"},
-		{"git", "-C", workDir, "config", "user.name", "Test"},
-	}
-	for _, c := range cmds {
-		if out, err := exec.Command(c[0], c[1:]...).CombinedOutput(); err != nil {
-			t.Fatalf("command %v failed: %s\n%s", c, err, out)
-		}
-	}
+	runGit(t, "init", "-b", "main", workDir)
+	runGit(t, "-C", workDir, "config", "user.email", "test@test.com")
+	runGit(t, "-C", workDir, "config", "user.name", "Test")
 
 	// Create a file and commit
-	if err := os.WriteFile(filepath.Join(workDir, "init.pp"), []byte("class test {}"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(workDir, "init.pp"), []byte("class test {}"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
-	cmds = [][]string{
-		{"git", "-C", workDir, "add", "."},
-		{"git", "-C", workDir, "commit", "-m", "initial commit"},
-		{"git", "clone", "--bare", workDir, bareDir},
-	}
-	for _, c := range cmds {
-		if out, err := exec.Command(c[0], c[1:]...).CombinedOutput(); err != nil {
-			t.Fatalf("command %v failed: %s\n%s", c, err, out)
-		}
-	}
+	runGit(t, "-C", workDir, "add", ".")
+	runGit(t, "-C", workDir, "commit", "-m", "initial commit")
+	runGit(t, "clone", "--bare", workDir, bareDir)
 
 	return bareDir
 }
@@ -57,70 +53,35 @@ func createTestRepoWithBranches(t *testing.T, dir, name string, branches []strin
 	workDir := filepath.Join(dir, name+"-work")
 	bareDir := filepath.Join(dir, name+".git")
 
-	if err := os.MkdirAll(workDir, 0o755); err != nil {
+	if err := os.MkdirAll(workDir, 0o750); err != nil {
 		t.Fatal(err)
 	}
 
-	cmds := [][]string{
-		{"git", "init", workDir},
-		{"git", "-C", workDir, "config", "user.email", "test@test.com"},
-		{"git", "-C", workDir, "config", "user.name", "Test"},
-	}
-	for _, c := range cmds {
-		if out, err := exec.Command(c[0], c[1:]...).CombinedOutput(); err != nil {
-			t.Fatalf("command %v failed: %s\n%s", c, err, out)
-		}
-	}
+	runGit(t, "init", "-b", "main", workDir)
+	runGit(t, "-C", workDir, "config", "user.email", "test@test.com")
+	runGit(t, "-C", workDir, "config", "user.name", "Test")
 
-	if err := os.WriteFile(filepath.Join(workDir, "init.pp"), []byte("class base {}"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(workDir, "init.pp"), []byte("class base {}"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
-	cmds = [][]string{
-		{"git", "-C", workDir, "add", "."},
-		{"git", "-C", workDir, "commit", "-m", "initial"},
-	}
-	for _, c := range cmds {
-		if out, err := exec.Command(c[0], c[1:]...).CombinedOutput(); err != nil {
-			t.Fatalf("command %v failed: %s\n%s", c, err, out)
-		}
-	}
+	runGit(t, "-C", workDir, "add", ".")
+	runGit(t, "-C", workDir, "commit", "-m", "initial")
 
 	for _, branch := range branches {
-		cmds := [][]string{
-			{"git", "-C", workDir, "checkout", "-b", branch},
-		}
+		runGit(t, "-C", workDir, "checkout", "-b", branch)
 
-		if err := os.WriteFile(filepath.Join(workDir, branch+".pp"), []byte("class "+branch+" {}"), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(workDir, branch+".pp"), []byte("class "+branch+" {}"), 0o600); err != nil {
 			t.Fatal(err)
 		}
 
-		cmds = append(cmds,
-			[]string{"git", "-C", workDir, "add", "."},
-			[]string{"git", "-C", workDir, "commit", "-m", "add " + branch},
-			[]string{"git", "-C", workDir, "checkout", "main"},
-		)
-
-		for _, c := range cmds {
-			out, err := exec.Command(c[0], c[1:]...).CombinedOutput()
-			if err != nil {
-				// Try master instead of main for older git
-				if strings.Contains(string(out), "not a valid") && c[len(c)-1] == "main" {
-					c[len(c)-1] = "master"
-					if out2, err2 := exec.Command(c[0], c[1:]...).CombinedOutput(); err2 != nil {
-						t.Fatalf("command %v failed: %s\n%s", c, err2, out2)
-					}
-					continue
-				}
-				t.Fatalf("command %v failed: %s\n%s", c, err, out)
-			}
-		}
+		runGit(t, "-C", workDir, "add", ".")
+		runGit(t, "-C", workDir, "commit", "-m", "add "+branch)
+		runGit(t, "-C", workDir, "checkout", "main")
 	}
 
 	// Clone as bare
-	if out, err := exec.Command("git", "clone", "--bare", "--mirror", workDir, bareDir).CombinedOutput(); err != nil {
-		t.Fatalf("bare clone failed: %s\n%s", err, out)
-	}
+	runGit(t, "clone", "--bare", "--mirror", workDir, bareDir)
 
 	return bareDir
 }
@@ -134,12 +95,13 @@ func TestEnsureCloneAndFetch(t *testing.T) {
 	repoDir := filepath.Join(tmpDir, "repos")
 	cacheDir := filepath.Join(tmpDir, "cache")
 
-	bareRepo := createTestRepo(t, repoDir, "test-module")
+	bareRepo := createTestRepo(t, repoDir)
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	m := New(cacheDir, log)
+	ctx := context.Background()
 
 	// First clone
-	if err := m.EnsureClone(bareRepo); err != nil {
+	if err := m.EnsureClone(ctx, bareRepo); err != nil {
 		t.Fatalf("EnsureClone (initial) error = %v", err)
 	}
 
@@ -149,7 +111,7 @@ func TestEnsureCloneAndFetch(t *testing.T) {
 	}
 
 	// Second call should fetch (update)
-	if err := m.EnsureClone(bareRepo); err != nil {
+	if err := m.EnsureClone(ctx, bareRepo); err != nil {
 		t.Fatalf("EnsureClone (fetch) error = %v", err)
 	}
 }
@@ -163,16 +125,17 @@ func TestResolveRef(t *testing.T) {
 	repoDir := filepath.Join(tmpDir, "repos")
 	cacheDir := filepath.Join(tmpDir, "cache")
 
-	bareRepo := createTestRepo(t, repoDir, "test-module")
+	bareRepo := createTestRepo(t, repoDir)
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	m := New(cacheDir, log)
+	ctx := context.Background()
 
-	if err := m.EnsureClone(bareRepo); err != nil {
+	if err := m.EnsureClone(ctx, bareRepo); err != nil {
 		t.Fatalf("EnsureClone error = %v", err)
 	}
 
 	// Resolve HEAD
-	sha, err := m.ResolveRef(bareRepo, "HEAD")
+	sha, err := m.ResolveRef(ctx, bareRepo, "HEAD")
 	if err != nil {
 		t.Fatalf("ResolveRef(HEAD) error = %v", err)
 	}
@@ -190,15 +153,16 @@ func TestResolveRefNotFound(t *testing.T) {
 	repoDir := filepath.Join(tmpDir, "repos")
 	cacheDir := filepath.Join(tmpDir, "cache")
 
-	bareRepo := createTestRepo(t, repoDir, "test-module")
+	bareRepo := createTestRepo(t, repoDir)
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	m := New(cacheDir, log)
+	ctx := context.Background()
 
-	if err := m.EnsureClone(bareRepo); err != nil {
+	if err := m.EnsureClone(ctx, bareRepo); err != nil {
 		t.Fatal(err)
 	}
 
-	_, err := m.ResolveRef(bareRepo, "nonexistent-branch")
+	_, err := m.ResolveRef(ctx, bareRepo, "nonexistent-branch")
 	if err == nil {
 		t.Fatal("expected error for nonexistent ref, got nil")
 	}
@@ -216,17 +180,18 @@ func TestListBranches(t *testing.T) {
 	bareRepo := createTestRepoWithBranches(t, repoDir, "control-repo", []string{"staging", "development"})
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	m := New(cacheDir, log)
+	ctx := context.Background()
 
-	if err := m.EnsureClone(bareRepo); err != nil {
+	if err := m.EnsureClone(ctx, bareRepo); err != nil {
 		t.Fatalf("EnsureClone error = %v", err)
 	}
 
-	branches, err := m.ListBranches(bareRepo)
+	branches, err := m.ListBranches(ctx, bareRepo)
 	if err != nil {
 		t.Fatalf("ListBranches error = %v", err)
 	}
 
-	// Should have at least main/master + staging + development
+	// Should have at least main + staging + development
 	if len(branches) < 3 {
 		t.Errorf("got %d branches, want at least 3: %v", len(branches), branches)
 	}
@@ -253,25 +218,26 @@ func TestCheckout(t *testing.T) {
 	cacheDir := filepath.Join(tmpDir, "cache")
 	targetDir := filepath.Join(tmpDir, "target")
 
-	bareRepo := createTestRepo(t, repoDir, "test-module")
+	bareRepo := createTestRepo(t, repoDir)
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	m := New(cacheDir, log)
+	ctx := context.Background()
 
-	if err := m.EnsureClone(bareRepo); err != nil {
+	if err := m.EnsureClone(ctx, bareRepo); err != nil {
 		t.Fatalf("EnsureClone error = %v", err)
 	}
 
-	sha, err := m.ResolveRef(bareRepo, "HEAD")
+	sha, err := m.ResolveRef(ctx, bareRepo, "HEAD")
 	if err != nil {
 		t.Fatalf("ResolveRef error = %v", err)
 	}
 
-	if err := m.Checkout(bareRepo, sha, targetDir); err != nil {
+	if err := m.Checkout(ctx, bareRepo, sha, targetDir); err != nil {
 		t.Fatalf("Checkout error = %v", err)
 	}
 
 	// Check that the file was checked out
-	content, err := os.ReadFile(filepath.Join(targetDir, "init.pp"))
+	content, err := os.ReadFile(filepath.Clean(filepath.Join(targetDir, "init.pp")))
 	if err != nil {
 		t.Fatalf("reading checked out file: %v", err)
 	}
@@ -289,7 +255,7 @@ func TestEnsureCloneInvalidURL(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	m := New(tmpDir, log)
 
-	err := m.EnsureClone("https://invalid.example.com/nonexistent/repo.git")
+	err := m.EnsureClone(context.Background(), "https://invalid.example.com/nonexistent/repo.git")
 	if err == nil {
 		t.Fatal("expected error for invalid URL, got nil")
 	}

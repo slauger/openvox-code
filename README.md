@@ -1,4 +1,4 @@
-# openvox-code
+# 🦊 openvox-code
 
 [![CI](https://github.com/slauger/openvox-code/actions/workflows/ci.yaml/badge.svg)](https://github.com/slauger/openvox-code/actions/workflows/ci.yaml)
 [![Go Report Card](https://goreportcard.com/badge/github.com/slauger/openvox-code)](https://goreportcard.com/report/github.com/slauger/openvox-code)
@@ -7,12 +7,12 @@ Fast, Git-native Puppet environment deployment tool written in Go.
 
 openvox-code replaces [r10k](https://github.com/puppetlabs/r10k) and [g10k](https://github.com/xorpaul/g10k) with a simpler, more focused approach:
 
-- **No Ruby** — single static Go binary, no runtime dependencies
-- **No Puppetfile** — clean YAML configuration instead of Ruby DSL
-- **Git-first** — bare clone caching, parallel fetches, atomic deploys
-- **Offline-capable** — decouple mirroring from deployment
-- **OCI output** — build container images with Puppet code for use with [openvox-operator](https://github.com/slauger/openvox-operator)
-- **CI/CD-first** — build artifacts once in CI, deploy immutable images everywhere (no Git access needed on target nodes)
+- 🏗️ **No Ruby** — single static Go binary, no runtime dependencies
+- 📝 **No Puppetfile** — clean YAML configuration instead of Ruby DSL
+- 🔀 **Git-first** — bare clone caching, parallel fetches, atomic deploys
+- 📴 **Offline-capable** — decouple mirroring from deployment
+- 📦 **OCI output** — build container images with Puppet code for use with [openvox-operator](https://github.com/slauger/openvox-operator)
+- 🚀 **CI/CD-first** — build artifacts once in CI, deploy immutable images everywhere (no Git access needed on target nodes)
 
 ## Why not r10k or g10k?
 

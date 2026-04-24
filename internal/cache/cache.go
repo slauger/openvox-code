@@ -1,6 +1,8 @@
+// Package cache manages bare-clone Git caches for efficient repository storage.
 package cache
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"net/url"
@@ -9,6 +11,18 @@ import (
 	"path/filepath"
 	"strings"
 )
+
+// allowedGitSubcommands is the set of git subcommands that the cache manager
+// is permitted to invoke. This mitigates gosec G204 by restricting what
+// can be executed via variable arguments.
+var allowedGitSubcommands = map[string]bool{
+	"clone":        true,
+	"fetch":        true,
+	"rev-parse":    true,
+	"for-each-ref": true,
+	"archive":      true,
+	"-C":           true,
+}
 
 // Manager handles bare clone Git caches.
 type Manager struct {
@@ -34,32 +48,82 @@ func (m *Manager) RepoPath(gitURL string) string {
 	return filepath.Join(m.baseDir, "git", urlToDir(gitURL))
 }
 
+// git executes a git command with the given arguments using the provided context.
+// It validates that only known-safe git subcommands are used.
+func (m *Manager) git(ctx context.Context, args ...string) ([]byte, error) {
+	if err := validateGitArgs(args); err != nil {
+		return nil, err
+	}
+	cmd := exec.CommandContext(ctx, "git", args...) // #nosec G204 -- args validated above
+	return cmd.Output()
+}
+
+// gitRun executes a git command and returns only the error (discarding stdout).
+func (m *Manager) gitRun(ctx context.Context, args ...string) error {
+	if err := validateGitArgs(args); err != nil {
+		return err
+	}
+	cmd := exec.CommandContext(ctx, "git", args...) // #nosec G204 -- args validated above
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+// validateGitArgs checks that the git subcommand is in the allowed set.
+// It correctly handles flags like -C which take a path argument.
+func validateGitArgs(args []string) error {
+	skipNext := false
+	for _, arg := range args {
+		if skipNext {
+			skipNext = false
+			continue
+		}
+		// -C takes a path argument; skip both -C and its value
+		if arg == "-C" {
+			skipNext = true
+			continue
+		}
+		// Skip other flags (e.g. --format=..., --verify, --prune)
+		if strings.HasPrefix(arg, "-") {
+			continue
+		}
+		// First positional arg is the subcommand
+		if !allowedGitSubcommands[arg] {
+			return fmt.Errorf("disallowed git subcommand: %q", arg)
+		}
+		return nil
+	}
+	return fmt.Errorf("no git subcommand found in args")
+}
+
 // EnsureClone ensures a bare clone exists for the given URL.
 // If the clone already exists, it fetches updates; otherwise it creates a new bare clone.
-func (m *Manager) EnsureClone(gitURL string) error {
+func (m *Manager) EnsureClone(ctx context.Context, gitURL string) error {
 	repoPath := m.RepoPath(gitURL)
 
 	if _, err := os.Stat(filepath.Join(repoPath, "HEAD")); err == nil {
 		m.log.Debug("updating bare clone", "url", gitURL, "path", repoPath)
-		return m.fetch(repoPath)
+		return m.fetch(ctx, repoPath)
 	}
 
 	m.log.Debug("creating bare clone", "url", gitURL, "path", repoPath)
-	return m.clone(gitURL, repoPath)
+	return m.clone(ctx, gitURL, repoPath)
 }
 
 // ResolveRef resolves a ref (branch, tag, or SHA) to a concrete SHA in the cache.
-func (m *Manager) ResolveRef(gitURL, ref string) (string, error) {
+func (m *Manager) ResolveRef(ctx context.Context, gitURL, ref string) (string, error) {
 	repoPath := m.RepoPath(gitURL)
-	cmd := exec.Command("git", "-C", repoPath, "rev-parse", "--verify", ref)
-	out, err := cmd.Output()
+
+	// Validate ref does not contain shell-unsafe characters
+	if strings.ContainsAny(ref, ";&|`$\\") {
+		return "", fmt.Errorf("invalid ref %q: contains disallowed characters", ref)
+	}
+
+	out, err := m.git(ctx, "-C", repoPath, "rev-parse", "--verify", ref)
 	if err != nil {
 		// Try as remote ref
-		cmd = exec.Command("git", "-C", repoPath, "rev-parse", "--verify", "refs/heads/"+ref)
-		out, err = cmd.Output()
+		out, err = m.git(ctx, "-C", repoPath, "rev-parse", "--verify", "refs/heads/"+ref)
 		if err != nil {
-			cmd = exec.Command("git", "-C", repoPath, "rev-parse", "--verify", "refs/tags/"+ref)
-			out, err = cmd.Output()
+			out, err = m.git(ctx, "-C", repoPath, "rev-parse", "--verify", "refs/tags/"+ref)
 			if err != nil {
 				return "", fmt.Errorf("resolving ref %q in %s: %w", ref, gitURL, err)
 			}
@@ -69,10 +133,9 @@ func (m *Manager) ResolveRef(gitURL, ref string) (string, error) {
 }
 
 // ListBranches lists all branches in a cached bare clone.
-func (m *Manager) ListBranches(gitURL string) ([]string, error) {
+func (m *Manager) ListBranches(ctx context.Context, gitURL string) ([]string, error) {
 	repoPath := m.RepoPath(gitURL)
-	cmd := exec.Command("git", "-C", repoPath, "for-each-ref", "--format=%(refname:short)", "refs/heads/")
-	out, err := cmd.Output()
+	out, err := m.git(ctx, "-C", repoPath, "for-each-ref", "--format=%(refname:short)", "refs/heads/")
 	if err != nil {
 		return nil, fmt.Errorf("listing branches for %s: %w", gitURL, err)
 	}
@@ -89,29 +152,34 @@ func (m *Manager) ListBranches(gitURL string) ([]string, error) {
 }
 
 // Checkout checks out files from a cached repo at the given SHA into the target directory.
-func (m *Manager) Checkout(gitURL, sha, targetDir string) error {
+func (m *Manager) Checkout(ctx context.Context, gitURL, sha, targetDir string) error {
 	repoPath := m.RepoPath(gitURL)
 
-	if err := os.MkdirAll(targetDir, 0o755); err != nil {
+	// Validate sha does not contain shell-unsafe characters
+	if strings.ContainsAny(sha, ";&|`$\\") {
+		return fmt.Errorf("invalid sha %q: contains disallowed characters", sha)
+	}
+
+	if err := os.MkdirAll(targetDir, 0o750); err != nil {
 		return fmt.Errorf("creating target dir %s: %w", targetDir, err)
 	}
 
-	cmd := exec.Command("git", "-C", repoPath, "archive", "--format=tar", sha)
-	tarCmd := exec.Command("tar", "-xf", "-", "-C", targetDir)
+	archiveCmd := exec.CommandContext(ctx, "git", "-C", repoPath, "archive", "--format=tar", sha) // #nosec G204 -- sha validated above
+	tarCmd := exec.CommandContext(ctx, "tar", "-xf", "-", "-C", targetDir)                        // #nosec G204 -- targetDir is an internal path
 
-	pipe, err := cmd.StdoutPipe()
+	pipe, err := archiveCmd.StdoutPipe()
 	if err != nil {
 		return fmt.Errorf("creating pipe: %w", err)
 	}
 	tarCmd.Stdin = pipe
 
-	if err := cmd.Start(); err != nil {
+	if err := archiveCmd.Start(); err != nil {
 		return fmt.Errorf("starting git archive: %w", err)
 	}
 	if err := tarCmd.Start(); err != nil {
 		return fmt.Errorf("starting tar: %w", err)
 	}
-	if err := cmd.Wait(); err != nil {
+	if err := archiveCmd.Wait(); err != nil {
 		return fmt.Errorf("git archive for %s@%s: %w", gitURL, sha, err)
 	}
 	if err := tarCmd.Wait(); err != nil {
@@ -121,23 +189,19 @@ func (m *Manager) Checkout(gitURL, sha, targetDir string) error {
 	return nil
 }
 
-func (m *Manager) clone(gitURL, repoPath string) error {
-	if err := os.MkdirAll(filepath.Dir(repoPath), 0o755); err != nil {
+func (m *Manager) clone(ctx context.Context, gitURL, repoPath string) error {
+	if err := os.MkdirAll(filepath.Dir(repoPath), 0o750); err != nil {
 		return fmt.Errorf("creating cache dir: %w", err)
 	}
 
-	cmd := exec.Command("git", "clone", "--bare", "--mirror", gitURL, repoPath)
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
+	if err := m.gitRun(ctx, "clone", "--bare", "--mirror", gitURL, repoPath); err != nil {
 		return fmt.Errorf("cloning %s: %w", gitURL, err)
 	}
 	return nil
 }
 
-func (m *Manager) fetch(repoPath string) error {
-	cmd := exec.Command("git", "-C", repoPath, "fetch", "--prune", "--all")
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
+func (m *Manager) fetch(ctx context.Context, repoPath string) error {
+	if err := m.gitRun(ctx, "-C", repoPath, "fetch", "--prune", "--all"); err != nil {
 		return fmt.Errorf("fetching %s: %w", repoPath, err)
 	}
 	return nil

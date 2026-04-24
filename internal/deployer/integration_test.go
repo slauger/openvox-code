@@ -1,6 +1,7 @@
 package deployer
 
 import (
+	"context"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -11,36 +12,37 @@ import (
 	"github.com/slauger/openvox-code/internal/resolver"
 )
 
+// runGit runs a git command for test setup.
+func runGit(t *testing.T, args ...string) {
+	t.Helper()
+	cmd := exec.CommandContext(context.Background(), "git", args...) // #nosec G204 -- test-only
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v failed: %s\n%s", args, err, out)
+	}
+}
+
 // createTestRepo creates a local bare Git repository with a file and returns its file:// URL.
-func createTestRepo(t *testing.T, dir, name, filename, content string) string {
+func createTestRepo(t *testing.T, dir, name, content string) string {
 	t.Helper()
 
 	workDir := filepath.Join(dir, name+"-work")
 	bareDir := filepath.Join(dir, name+".git")
 
-	if err := os.MkdirAll(workDir, 0o755); err != nil {
+	if err := os.MkdirAll(workDir, 0o750); err != nil {
 		t.Fatal(err)
 	}
 
-	run := func(args ...string) {
-		t.Helper()
-		cmd := exec.Command(args[0], args[1:]...)
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("command %v failed: %s\n%s", args, err, out)
-		}
-	}
+	runGit(t, "init", "-b", "main", workDir)
+	runGit(t, "-C", workDir, "config", "user.email", "test@test.com")
+	runGit(t, "-C", workDir, "config", "user.name", "Test")
 
-	run("git", "init", workDir)
-	run("git", "-C", workDir, "config", "user.email", "test@test.com")
-	run("git", "-C", workDir, "config", "user.name", "Test")
-
-	if err := os.WriteFile(filepath.Join(workDir, filename), []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(workDir, "init.pp"), []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
-	run("git", "-C", workDir, "add", ".")
-	run("git", "-C", workDir, "commit", "-m", "initial commit")
-	run("git", "clone", "--bare", "--mirror", workDir, bareDir)
+	runGit(t, "-C", workDir, "add", ".")
+	runGit(t, "-C", workDir, "commit", "-m", "initial commit")
+	runGit(t, "clone", "--bare", "--mirror", workDir, bareDir)
 
 	return bareDir
 }
@@ -56,25 +58,26 @@ func TestDeployAllIntegration(t *testing.T) {
 	envDir := filepath.Join(tmpDir, "environments")
 
 	// Create test module repos
-	stdlibRepo := createTestRepo(t, repoDir, "stdlib", "init.pp", "class stdlib {}")
-	apacheRepo := createTestRepo(t, repoDir, "apache", "init.pp", "class apache {}")
+	stdlibRepo := createTestRepo(t, repoDir, "stdlib", "class stdlib {}")
+	apacheRepo := createTestRepo(t, repoDir, "apache", "class apache {}")
 
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	cm := cache.New(cacheDir, log)
+	ctx := context.Background()
 
 	// Clone repos into cache
 	for _, repo := range []string{stdlibRepo, apacheRepo} {
-		if err := cm.EnsureClone(repo); err != nil {
+		if err := cm.EnsureClone(ctx, repo); err != nil {
 			t.Fatalf("EnsureClone(%s) error = %v", repo, err)
 		}
 	}
 
 	// Resolve refs
-	stdlibSHA, err := cm.ResolveRef(stdlibRepo, "HEAD")
+	stdlibSHA, err := cm.ResolveRef(ctx, stdlibRepo, "HEAD")
 	if err != nil {
 		t.Fatalf("ResolveRef(stdlib) error = %v", err)
 	}
-	apacheSHA, err := cm.ResolveRef(apacheRepo, "HEAD")
+	apacheSHA, err := cm.ResolveRef(ctx, apacheRepo, "HEAD")
 	if err != nil {
 		t.Fatalf("ResolveRef(apache) error = %v", err)
 	}
@@ -92,7 +95,7 @@ func TestDeployAllIntegration(t *testing.T) {
 
 	d := New(envDir, cm, log)
 
-	if err := d.DeployAll(envs, false); err != nil {
+	if err := d.DeployAll(ctx, envs, false); err != nil {
 		t.Fatalf("DeployAll error = %v", err)
 	}
 
@@ -115,7 +118,7 @@ func TestDeployAllIntegration(t *testing.T) {
 	}
 
 	// Verify file content
-	content, err := os.ReadFile(filepath.Join(envDir, "production", "modules", "stdlib", "init.pp"))
+	content, err := os.ReadFile(filepath.Clean(filepath.Join(envDir, "production", "modules", "stdlib", "init.pp")))
 	if err != nil {
 		t.Fatalf("reading stdlib init.pp: %v", err)
 	}
@@ -134,22 +137,23 @@ func TestDeployAllWithClean(t *testing.T) {
 	cacheDir := filepath.Join(tmpDir, "cache")
 	envDir := filepath.Join(tmpDir, "environments")
 
-	stdlibRepo := createTestRepo(t, repoDir, "stdlib", "init.pp", "class stdlib {}")
+	stdlibRepo := createTestRepo(t, repoDir, "stdlib", "class stdlib {}")
 
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	cm := cache.New(cacheDir, log)
+	ctx := context.Background()
 
-	if err := cm.EnsureClone(stdlibRepo); err != nil {
+	if err := cm.EnsureClone(ctx, stdlibRepo); err != nil {
 		t.Fatal(err)
 	}
 
-	sha, err := cm.ResolveRef(stdlibRepo, "HEAD")
+	sha, err := cm.ResolveRef(ctx, stdlibRepo, "HEAD")
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// Create a stale environment
-	if err := os.MkdirAll(filepath.Join(envDir, "stale-env", "modules"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(envDir, "stale-env", "modules"), 0o750); err != nil {
 		t.Fatal(err)
 	}
 
@@ -164,7 +168,7 @@ func TestDeployAllWithClean(t *testing.T) {
 	}
 
 	d := New(envDir, cm, log)
-	if err := d.DeployAll(envs, true); err != nil {
+	if err := d.DeployAll(ctx, envs, true); err != nil {
 		t.Fatalf("DeployAll error = %v", err)
 	}
 
@@ -189,26 +193,29 @@ func TestDeployAtomicity(t *testing.T) {
 	cacheDir := filepath.Join(tmpDir, "cache")
 	envDir := filepath.Join(tmpDir, "environments")
 
-	stdlibRepo := createTestRepo(t, repoDir, "stdlib", "init.pp", "class stdlib {}")
+	stdlibRepo := createTestRepo(t, repoDir, "stdlib", "class stdlib {}")
 
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	cm := cache.New(cacheDir, log)
+	ctx := context.Background()
 
-	if err := cm.EnsureClone(stdlibRepo); err != nil {
+	if err := cm.EnsureClone(ctx, stdlibRepo); err != nil {
 		t.Fatal(err)
 	}
 
-	sha, err := cm.ResolveRef(stdlibRepo, "HEAD")
+	sha, err := cm.ResolveRef(ctx, stdlibRepo, "HEAD")
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// Create existing environment (should be replaced atomically)
 	prodDir := filepath.Join(envDir, "production", "modules", "old-module")
-	if err := os.MkdirAll(prodDir, 0o755); err != nil {
+	if err := os.MkdirAll(prodDir, 0o750); err != nil {
 		t.Fatal(err)
 	}
-	os.WriteFile(filepath.Join(prodDir, "old.pp"), []byte("old"), 0o644)
+	if err := os.WriteFile(filepath.Join(prodDir, "old.pp"), []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 
 	envs := []resolver.ResolvedEnvironment{
 		{
@@ -221,7 +228,7 @@ func TestDeployAtomicity(t *testing.T) {
 	}
 
 	d := New(envDir, cm, log)
-	if err := d.DeployAll(envs, false); err != nil {
+	if err := d.DeployAll(ctx, envs, false); err != nil {
 		t.Fatalf("DeployAll error = %v", err)
 	}
 
@@ -236,7 +243,10 @@ func TestDeployAtomicity(t *testing.T) {
 	}
 
 	// No .tmp directories should remain
-	entries, _ := os.ReadDir(envDir)
+	entries, err := os.ReadDir(envDir)
+	if err != nil {
+		t.Fatalf("ReadDir error = %v", err)
+	}
 	for _, e := range entries {
 		if filepath.Ext(e.Name()) == ".tmp" {
 			t.Errorf("leftover tmp directory: %s", e.Name())

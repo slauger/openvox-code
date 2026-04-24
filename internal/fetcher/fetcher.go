@@ -1,6 +1,8 @@
+// Package fetcher handles parallel Git fetch operations for repository caching.
 package fetcher
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -29,7 +31,7 @@ func New(cache *cache.Manager, parallel int, log *slog.Logger) *Fetcher {
 }
 
 // FetchAll fetches all unique Git repositories referenced in the resolved environments.
-func (f *Fetcher) FetchAll(envs []resolver.ResolvedEnvironment) error {
+func (f *Fetcher) FetchAll(ctx context.Context, envs []resolver.ResolvedEnvironment) error {
 	urls := uniqueURLs(envs)
 	if len(urls) == 0 {
 		f.log.Info("no repositories to fetch")
@@ -52,7 +54,7 @@ func (f *Fetcher) FetchAll(envs []resolver.ResolvedEnvironment) error {
 			defer func() { <-sem }()
 
 			f.log.Debug("fetching", "url", gitURL)
-			if err := f.cache.EnsureClone(gitURL); err != nil {
+			if err := f.cache.EnsureClone(ctx, gitURL); err != nil {
 				errChan <- fmt.Errorf("fetching %s: %w", gitURL, err)
 			}
 		}(u)

@@ -88,7 +88,7 @@ func TestDiffRemoveEnvironment(t *testing.T) {
 	dir := t.TempDir()
 
 	// Create an existing environment
-	if err := os.MkdirAll(filepath.Join(dir, "stale-env", "modules"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, "stale-env", "modules"), 0o750); err != nil {
 		t.Fatal(err)
 	}
 
@@ -113,7 +113,7 @@ func TestDiffRemoveModule(t *testing.T) {
 
 	// Create existing environment with a module
 	envDir := filepath.Join(dir, "prod", "modules", "old-module")
-	if err := os.MkdirAll(envDir, 0o755); err != nil {
+	if err := os.MkdirAll(envDir, 0o750); err != nil {
 		t.Fatal(err)
 	}
 
@@ -158,7 +158,7 @@ func TestCleanStale(t *testing.T) {
 
 	// Create some environments
 	for _, name := range []string{"keep", "stale1", "stale2"} {
-		if err := os.MkdirAll(filepath.Join(dir, name), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Join(dir, name), 0o750); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -170,7 +170,10 @@ func TestCleanStale(t *testing.T) {
 		t.Fatalf("cleanStale() error = %v", err)
 	}
 
-	entries, _ := os.ReadDir(dir)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("ReadDir error = %v", err)
+	}
 	if len(entries) != 1 {
 		t.Fatalf("expected 1 remaining dir, got %d", len(entries))
 	}
@@ -184,12 +187,14 @@ func TestListExistingEnvironments(t *testing.T) {
 
 	// Create some dirs including hidden and tmp ones
 	for _, name := range []string{"production", "staging", ".hidden", "temp.tmp"} {
-		if err := os.MkdirAll(filepath.Join(dir, name), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Join(dir, name), 0o750); err != nil {
 			t.Fatal(err)
 		}
 	}
 	// Create a regular file (should be ignored)
-	os.WriteFile(filepath.Join(dir, "somefile"), []byte("data"), 0o644)
+	if err := os.WriteFile(filepath.Join(dir, "somefile"), []byte("data"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 
 	d := New(dir, nil, testLogger())
 	envs, err := d.listExistingEnvironments()

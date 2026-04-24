@@ -1,3 +1,4 @@
+// Package config handles loading and validating openvox-code configuration files.
 package config
 
 import (
@@ -24,9 +25,9 @@ type Config struct {
 
 // Source defines a control repository for branch-based environment discovery.
 type Source struct {
-	URL        string      `yaml:"url"`
-	Branches   BranchSpec  `yaml:"branches"`
-	ModuleFile string      `yaml:"modulefile,omitempty"`
+	URL        string     `yaml:"url"`
+	Branches   BranchSpec `yaml:"branches"`
+	ModuleFile string     `yaml:"modulefile,omitempty"`
 }
 
 // BranchSpec can be "all" or a list of specific branch names.
@@ -35,6 +36,7 @@ type BranchSpec struct {
 	Branches []string
 }
 
+// UnmarshalYAML implements custom YAML unmarshaling for branch specifications.
 func (b *BranchSpec) UnmarshalYAML(value *yaml.Node) error {
 	if value.Kind == yaml.ScalarNode {
 		if value.Value == "all" {
@@ -82,7 +84,7 @@ type OCIConfig struct {
 
 // Load reads and parses the configuration file, processing includes.
 func Load(path string) (*Config, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		return nil, fmt.Errorf("reading config file: %w", err)
 	}
@@ -117,7 +119,7 @@ func (c *Config) processIncludes(baseDir string) error {
 		sort.Strings(matches)
 
 		for _, match := range matches {
-			data, err := os.ReadFile(match)
+			data, err := os.ReadFile(filepath.Clean(match))
 			if err != nil {
 				return fmt.Errorf("reading include %q: %w", match, err)
 			}

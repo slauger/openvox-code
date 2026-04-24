@@ -20,7 +20,7 @@ sources:
   - url: https://github.com/example/control-repo.git
     branches: all
 `
-	if err := os.WriteFile(cfgFile, []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(cfgFile, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -72,7 +72,7 @@ environments:
         git: https://github.com/example/custom.git
         ref: main
 `
-	if err := os.WriteFile(cfgFile, []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(cfgFile, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -101,7 +101,7 @@ environments:
 func TestLoadConfigWithIncludes(t *testing.T) {
 	dir := t.TempDir()
 	modulesetsDir := filepath.Join(dir, "modulesets")
-	if err := os.MkdirAll(modulesetsDir, 0o755); err != nil {
+	if err := os.MkdirAll(modulesetsDir, 0o750); err != nil {
 		t.Fatal(err)
 	}
 
@@ -123,10 +123,10 @@ modulesets:
       git: https://github.com/puppetlabs/puppetlabs-stdlib.git
       ref: v9.0.0
 `
-	if err := os.WriteFile(filepath.Join(dir, "openvox-code.yaml"), []byte(mainCfg), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "openvox-code.yaml"), []byte(mainCfg), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(modulesetsDir, "base.yaml"), []byte(baseCfg), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(modulesetsDir, "base.yaml"), []byte(baseCfg), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -146,7 +146,7 @@ modulesets:
 func TestLoadConfigNestedIncludesFails(t *testing.T) {
 	dir := t.TempDir()
 	subDir := filepath.Join(dir, "sub")
-	if err := os.MkdirAll(subDir, 0o755); err != nil {
+	if err := os.MkdirAll(subDir, 0o750); err != nil {
 		t.Fatal(err)
 	}
 
@@ -160,10 +160,10 @@ includes:
 includes:
   - something.yaml
 `
-	if err := os.WriteFile(filepath.Join(dir, "openvox-code.yaml"), []byte(mainCfg), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "openvox-code.yaml"), []byte(mainCfg), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(subDir, "nested.yaml"), []byte(nestedCfg), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(subDir, "nested.yaml"), []byte(nestedCfg), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -186,7 +186,7 @@ func TestLoadConfigFileNotFound(t *testing.T) {
 func TestLoadConfigInvalidYAML(t *testing.T) {
 	dir := t.TempDir()
 	cfgFile := filepath.Join(dir, "openvox-code.yaml")
-	if err := os.WriteFile(cfgFile, []byte("{{invalid yaml"), 0o644); err != nil {
+	if err := os.WriteFile(cfgFile, []byte("{{invalid yaml"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 

@@ -1,6 +1,7 @@
 package fetcher
 
 import (
+	"context"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -11,34 +12,36 @@ import (
 	"github.com/slauger/openvox-code/internal/resolver"
 )
 
+// runGit runs a git command for test setup.
+func runGit(t *testing.T, args ...string) {
+	t.Helper()
+	cmd := exec.CommandContext(context.Background(), "git", args...) // #nosec G204 -- test-only
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v failed: %s\n%s", args, err, out)
+	}
+}
+
 func createTestRepo(t *testing.T, dir, name string) string {
 	t.Helper()
 
 	workDir := filepath.Join(dir, name+"-work")
 	bareDir := filepath.Join(dir, name+".git")
 
-	if err := os.MkdirAll(workDir, 0o755); err != nil {
+	if err := os.MkdirAll(workDir, 0o750); err != nil {
 		t.Fatal(err)
 	}
 
-	run := func(args ...string) {
-		t.Helper()
-		if out, err := exec.Command(args[0], args[1:]...).CombinedOutput(); err != nil {
-			t.Fatalf("command %v failed: %s\n%s", args, err, out)
-		}
-	}
+	runGit(t, "init", "-b", "main", workDir)
+	runGit(t, "-C", workDir, "config", "user.email", "test@test.com")
+	runGit(t, "-C", workDir, "config", "user.name", "Test")
 
-	run("git", "init", workDir)
-	run("git", "-C", workDir, "config", "user.email", "test@test.com")
-	run("git", "-C", workDir, "config", "user.name", "Test")
-
-	if err := os.WriteFile(filepath.Join(workDir, "init.pp"), []byte("class "+name+" {}"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(workDir, "init.pp"), []byte("class "+name+" {}"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
-	run("git", "-C", workDir, "add", ".")
-	run("git", "-C", workDir, "commit", "-m", "initial")
-	run("git", "clone", "--bare", "--mirror", workDir, bareDir)
+	runGit(t, "-C", workDir, "add", ".")
+	runGit(t, "-C", workDir, "commit", "-m", "initial")
+	runGit(t, "clone", "--bare", "--mirror", workDir, bareDir)
 
 	return bareDir
 }
@@ -59,6 +62,7 @@ func TestFetchAll(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	cm := cache.New(cacheDir, log)
 	f := New(cm, 4, log)
+	ctx := context.Background()
 
 	envs := []resolver.ResolvedEnvironment{
 		{
@@ -77,7 +81,7 @@ func TestFetchAll(t *testing.T) {
 		},
 	}
 
-	if err := f.FetchAll(envs); err != nil {
+	if err := f.FetchAll(ctx, envs); err != nil {
 		t.Fatalf("FetchAll error = %v", err)
 	}
 
@@ -96,7 +100,7 @@ func TestFetchAllEmpty(t *testing.T) {
 	cm := cache.New(tmpDir, log)
 	f := New(cm, 2, log)
 
-	if err := f.FetchAll(nil); err != nil {
+	if err := f.FetchAll(context.Background(), nil); err != nil {
 		t.Fatalf("FetchAll(nil) error = %v", err)
 	}
 }
@@ -116,6 +120,7 @@ func TestFetchAllWithControlRepo(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	cm := cache.New(cacheDir, log)
 	f := New(cm, 2, log)
+	ctx := context.Background()
 
 	envs := []resolver.ResolvedEnvironment{
 		{
@@ -127,7 +132,7 @@ func TestFetchAllWithControlRepo(t *testing.T) {
 		},
 	}
 
-	if err := f.FetchAll(envs); err != nil {
+	if err := f.FetchAll(ctx, envs); err != nil {
 		t.Fatalf("FetchAll error = %v", err)
 	}
 
@@ -159,8 +164,9 @@ func TestFetchAllParallelism(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	cm := cache.New(cacheDir, log)
 	f := New(cm, 2, log) // Only 2 parallel workers
+	ctx := context.Background()
 
-	var modules []resolver.ResolvedModule
+	modules := make([]resolver.ResolvedModule, 0, len(repos))
 	for i, r := range repos {
 		modules = append(modules, resolver.ResolvedModule{
 			Name:   "mod-" + string(rune('a'+i)),
@@ -172,7 +178,7 @@ func TestFetchAllParallelism(t *testing.T) {
 		{Name: "prod", Modules: modules},
 	}
 
-	if err := f.FetchAll(envs); err != nil {
+	if err := f.FetchAll(ctx, envs); err != nil {
 		t.Fatalf("FetchAll error = %v", err)
 	}
 

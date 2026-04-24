@@ -1,3 +1,4 @@
+// Commands for the openvox-code CLI tool.
 package main
 
 import (
@@ -75,13 +76,14 @@ var syncCmd = &cobra.Command{
 	Use:   "sync",
 	Short: "Fetch and deploy all environments",
 	Long:  "Fetch all Git repositories and deploy environments to disk. Equivalent to running mirror followed by deploy.",
-	RunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(cmd *cobra.Command, _ []string) error {
 		log := setupLogger()
 		cfg, err := loadConfig()
 		if err != nil {
 			return err
 		}
 
+		ctx := cmd.Context()
 		cm := cache.New(cfg.CacheDir, log)
 		d := deployer.New(cfg.EnvironmentDir, cm, log)
 
@@ -98,13 +100,13 @@ var syncCmd = &cobra.Command{
 			return fmt.Errorf("resolving environments: %w", err)
 		}
 
-		if err := f.FetchAll(resolved); err != nil {
+		if err := f.FetchAll(ctx, resolved); err != nil {
 			return fmt.Errorf("fetching repositories: %w", err)
 		}
 
 		log.Info("starting deploy phase")
 		clean, _ := cmd.Flags().GetBool("clean")
-		if err := d.DeployAll(resolved, clean); err != nil {
+		if err := d.DeployAll(ctx, resolved, clean); err != nil {
 			return fmt.Errorf("deploying environments: %w", err)
 		}
 
@@ -117,7 +119,7 @@ var mirrorCmd = &cobra.Command{
 	Use:   "mirror",
 	Short: "Fetch and cache all Git repositories",
 	Long:  "Fetch all Git repositories into the local bare clone cache without deploying.",
-	RunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(cmd *cobra.Command, _ []string) error {
 		log := setupLogger()
 		cfg, err := loadConfig()
 		if err != nil {
@@ -128,6 +130,7 @@ var mirrorCmd = &cobra.Command{
 			return fmt.Errorf("mirror requires network access; cannot run in offline mode")
 		}
 
+		ctx := cmd.Context()
 		cm := cache.New(cfg.CacheDir, log)
 		f := fetcher.New(cm, parallel, log)
 		r := resolver.New(cfg, log)
@@ -137,7 +140,7 @@ var mirrorCmd = &cobra.Command{
 			return fmt.Errorf("resolving environments: %w", err)
 		}
 
-		if err := f.FetchAll(resolved); err != nil {
+		if err := f.FetchAll(ctx, resolved); err != nil {
 			return fmt.Errorf("fetching repositories: %w", err)
 		}
 
@@ -150,13 +153,14 @@ var deployCmd = &cobra.Command{
 	Use:   "deploy",
 	Short: "Deploy environments from cache",
 	Long:  "Deploy environments from the local bare clone cache. No network access required.",
-	RunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(cmd *cobra.Command, _ []string) error {
 		log := setupLogger()
 		cfg, err := loadConfig()
 		if err != nil {
 			return err
 		}
 
+		ctx := cmd.Context()
 		cm := cache.New(cfg.CacheDir, log)
 		d := deployer.New(cfg.EnvironmentDir, cm, log)
 
@@ -177,7 +181,7 @@ var deployCmd = &cobra.Command{
 		}
 
 		clean, _ := cmd.Flags().GetBool("clean")
-		if err := d.DeployAll(resolved, clean); err != nil {
+		if err := d.DeployAll(ctx, resolved, clean); err != nil {
 			return fmt.Errorf("deploying environments: %w", err)
 		}
 
@@ -190,7 +194,7 @@ var diffCmd = &cobra.Command{
 	Use:   "diff",
 	Short: "Show what would change",
 	Long:  "Compare the current deployed state with what a sync would produce.",
-	RunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(_ *cobra.Command, _ []string) error {
 		log := setupLogger()
 		cfg, err := loadConfig()
 		if err != nil {
@@ -226,7 +230,7 @@ var validateCmd = &cobra.Command{
 	Use:   "validate",
 	Short: "Validate configuration file",
 	Long:  "Validate the configuration file syntax and check that all referenced Git refs are reachable.",
-	RunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(cmd *cobra.Command, _ []string) error {
 		log := setupLogger()
 		cfg, err := loadConfig()
 		if err != nil {
@@ -249,7 +253,7 @@ var buildCmd = &cobra.Command{
 	Use:   "build",
 	Short: "Build OCI container image",
 	Long:  "Build an OCI container image containing the deployed environments.",
-	RunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(cmd *cobra.Command, _ []string) error {
 		log := setupLogger()
 		cfg, err := loadConfig()
 		if err != nil {
@@ -302,13 +306,14 @@ var lockCmd = &cobra.Command{
 	Use:   "lock",
 	Short: "Generate or update lockfile",
 	Long:  "Resolve all refs to concrete Git SHAs and write a lockfile.",
-	RunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(cmd *cobra.Command, _ []string) error {
 		log := setupLogger()
 		cfg, err := loadConfig()
 		if err != nil {
 			return err
 		}
 
+		ctx := cmd.Context()
 		cm := cache.New(cfg.CacheDir, log)
 		f := fetcher.New(cm, parallel, log)
 		r := resolver.New(cfg, log)
@@ -319,7 +324,7 @@ var lockCmd = &cobra.Command{
 		}
 
 		// Fetch all repos to resolve refs to SHAs
-		if err := f.FetchAll(resolved); err != nil {
+		if err := f.FetchAll(ctx, resolved); err != nil {
 			return fmt.Errorf("fetching repositories: %w", err)
 		}
 
@@ -336,7 +341,7 @@ var lockCmd = &cobra.Command{
 			}
 
 			if env.ControlRepoURL != "" {
-				sha, err := cm.ResolveRef(env.ControlRepoURL, env.Ref)
+				sha, err := cm.ResolveRef(ctx, env.ControlRepoURL, env.Ref)
 				if err != nil {
 					return fmt.Errorf("resolving control repo ref for %q: %w", env.Name, err)
 				}
@@ -344,7 +349,7 @@ var lockCmd = &cobra.Command{
 			}
 
 			for _, mod := range env.Modules {
-				sha, err := cm.ResolveRef(mod.GitURL, mod.Ref)
+				sha, err := cm.ResolveRef(ctx, mod.GitURL, mod.Ref)
 				if err != nil {
 					return fmt.Errorf("resolving ref for %s/%s: %w", env.Name, mod.Name, err)
 				}

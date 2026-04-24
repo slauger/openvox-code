@@ -1,13 +1,12 @@
+version: "2"
+
 linters:
   enable:
     - bodyclose
     - copyloopvar
     - errcheck
     - gocritic
-    - gofmt
-    - goimports
     - gosec
-    - gosimple
     - govet
     - ineffassign
     - misspell
@@ -15,10 +14,14 @@ linters:
     - prealloc
     - revive
     - staticcheck
-    - typecheck
     - unconvert
     - unparam
     - unused
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
 
 linters-settings:
   gocritic:
@@ -38,7 +41,6 @@ linters-settings:
       - name: increment-decrement
       - name: var-naming
       - name: package-comments
-        disabled: true
       - name: range
       - name: receiver-naming
       - name: time-naming

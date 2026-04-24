@@ -1,3 +1,4 @@
+// Package resolver reads configuration and resolves Puppet environments with their modules.
 package resolver
 
 import (
@@ -54,10 +55,7 @@ func (r *Resolver) Resolve() ([]ResolvedEnvironment, error) {
 
 	// Resolve source-based (dynamic) environments
 	for _, src := range r.cfg.Sources {
-		srcEnvs, err := r.resolveSourceEnvironments(src)
-		if err != nil {
-			return nil, fmt.Errorf("source %q: %w", src.URL, err)
-		}
+		srcEnvs := r.resolveSourceEnvironments(src)
 		envs = append(envs, srcEnvs...)
 	}
 
@@ -65,7 +63,8 @@ func (r *Resolver) Resolve() ([]ResolvedEnvironment, error) {
 }
 
 // Validate checks the configuration for correctness.
-func (r *Resolver) Validate(offline bool) error {
+// When offline is true, only local validation is performed (no network checks).
+func (r *Resolver) Validate(_ bool) error {
 	// Schema validation is already done in config.Validate()
 	// Here we check for logical consistency
 
@@ -110,7 +109,7 @@ func (r *Resolver) resolveStaticEnvironment(name string, env *config.Environment
 	}, nil
 }
 
-func (r *Resolver) resolveSourceEnvironments(src config.Source) ([]ResolvedEnvironment, error) {
+func (r *Resolver) resolveSourceEnvironments(src config.Source) []ResolvedEnvironment {
 	gitURL := r.cfg.ResolveGitURL(src.URL)
 
 	if src.Branches.All {
@@ -121,10 +120,10 @@ func (r *Resolver) resolveSourceEnvironments(src config.Source) ([]ResolvedEnvir
 				ControlRepoURL: gitURL,
 				Ref:            "__all__",
 			},
-		}, nil
+		}
 	}
 
-	var envs []ResolvedEnvironment
+	envs := make([]ResolvedEnvironment, 0, len(src.Branches.Branches))
 	for _, branch := range src.Branches.Branches {
 		envs = append(envs, ResolvedEnvironment{
 			Name:           branch,
@@ -132,7 +131,7 @@ func (r *Resolver) resolveSourceEnvironments(src config.Source) ([]ResolvedEnvir
 			Ref:            branch,
 		})
 	}
-	return envs, nil
+	return envs
 }
 
 func (r *Resolver) collectModules(env *config.Environment) ([]ResolvedModule, error) {

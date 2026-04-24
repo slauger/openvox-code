@@ -1,3 +1,4 @@
+// Package builder creates OCI container images from deployed Puppet environments.
 package builder
 
 import (
@@ -6,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"runtime"
 
 	"github.com/google/go-containerregistry/pkg/crane"
@@ -128,16 +130,22 @@ func (b *Builder) createLayer(envDir string) (v1.Layer, error) {
 		return nil, fmt.Errorf("creating temp file: %w", err)
 	}
 	tmpPath := tmpFile.Name()
-	tmpFile.Close()
+	if err := tmpFile.Close(); err != nil {
+		return nil, fmt.Errorf("closing temp file: %w", err)
+	}
 
 	if err := createTarFromDir(envDir, targetPrefix, tmpPath); err != nil {
-		os.Remove(tmpPath)
+		if rmErr := os.Remove(tmpPath); rmErr != nil {
+			b.log.Warn("failed to remove temp file", "path", tmpPath, "error", rmErr)
+		}
 		return nil, fmt.Errorf("creating tar: %w", err)
 	}
 
 	// Read the entire tar into memory to avoid file-lifetime issues with lazy readers
-	data, err := os.ReadFile(tmpPath)
-	os.Remove(tmpPath)
+	data, err := os.ReadFile(filepath.Clean(tmpPath))
+	if rmErr := os.Remove(tmpPath); rmErr != nil {
+		b.log.Warn("failed to remove temp file", "path", tmpPath, "error", rmErr)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("reading tar: %w", err)
 	}

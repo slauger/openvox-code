@@ -13,10 +13,12 @@ func TestCreateTarFromDir(t *testing.T) {
 	srcDir := t.TempDir()
 
 	// Create test files
-	if err := os.MkdirAll(filepath.Join(srcDir, "production", "modules", "stdlib"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(srcDir, "production", "modules", "stdlib"), 0o750); err != nil {
 		t.Fatal(err)
 	}
-	os.WriteFile(filepath.Join(srcDir, "production", "modules", "stdlib", "init.pp"), []byte("class stdlib {}"), 0o644)
+	if err := os.WriteFile(filepath.Join(srcDir, "production", "modules", "stdlib", "init.pp"), []byte("class stdlib {}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 
 	outPath := filepath.Join(t.TempDir(), "test.tar")
 	if err := createTarFromDir(srcDir, "puppet/environments", outPath); err != nil {
@@ -24,11 +26,15 @@ func TestCreateTarFromDir(t *testing.T) {
 	}
 
 	// Read and verify tar contents
-	f, err := os.Open(outPath)
+	f, err := os.Open(filepath.Clean(outPath))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	defer func() {
+		if err := f.Close(); err != nil {
+			t.Errorf("closing tar file: %v", err)
+		}
+	}()
 
 	tr := tar.NewReader(f)
 	var entries []string
@@ -72,8 +78,15 @@ func TestCreateTarFromEmptyDir(t *testing.T) {
 	}
 
 	// Should still create a valid tar with just the prefix dir
-	f, _ := os.Open(outPath)
-	defer f.Close()
+	f, err := os.Open(filepath.Clean(outPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := f.Close(); err != nil {
+			t.Errorf("closing tar file: %v", err)
+		}
+	}()
 
 	tr := tar.NewReader(f)
 	count := 0

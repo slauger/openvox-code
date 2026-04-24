@@ -1,8 +1,10 @@
+// Package lock manages lockfiles that pin deployment state to exact Git SHAs.
 package lock
 
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"time"
 
@@ -11,8 +13,8 @@ import (
 
 // Lockfile represents a pinned deployment state with exact SHAs for every module.
 type Lockfile struct {
-	Version      int                        `yaml:"version"`
-	GeneratedAt  time.Time                  `yaml:"generated_at"`
+	Version      int                          `yaml:"version"`
+	GeneratedAt  time.Time                    `yaml:"generated_at"`
 	Environments map[string]LockedEnvironment `yaml:"environments"`
 }
 
@@ -26,15 +28,15 @@ type LockedEnvironment struct {
 
 // LockedModule is a module pinned to a concrete SHA.
 type LockedModule struct {
-	Name   string `yaml:"name"`
-	Git    string `yaml:"git"`
-	Ref    string `yaml:"ref"`
-	SHA    string `yaml:"sha"`
+	Name string `yaml:"name"`
+	Git  string `yaml:"git"`
+	Ref  string `yaml:"ref"`
+	SHA  string `yaml:"sha"`
 }
 
 // Load reads a lockfile from disk.
 func Load(path string) (*Lockfile, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		return nil, fmt.Errorf("reading lockfile: %w", err)
 	}
@@ -79,7 +81,7 @@ func (lf *Lockfile) Save(path string) error {
 		return fmt.Errorf("marshaling lockfile: %w", err)
 	}
 
-	if err := os.WriteFile(path, data, 0o644); err != nil {
+	if err := os.WriteFile(path, data, 0o600); err != nil {
 		return fmt.Errorf("writing lockfile: %w", err)
 	}
 

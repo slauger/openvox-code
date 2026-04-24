@@ -4,11 +4,11 @@
 
 It replaces [r10k](https://github.com/puppetlabs/r10k) and [g10k](https://github.com/xorpaul/g10k) with a simpler, more focused approach:
 
-- **No Ruby** — single static Go binary, no runtime dependencies
-- **No Puppetfile** — clean YAML configuration instead of Ruby DSL
-- **Git-first** — bare clone caching, parallel fetches, atomic deploys
-- **Offline-capable** — decouple mirroring from deployment
-- **OCI output** — build container images with Puppet code for use with openvox-operator
+- 🏗️ **No Ruby** — single static Go binary, no runtime dependencies
+- 📝 **No Puppetfile** — clean YAML configuration instead of Ruby DSL
+- 🔀 **Git-first** — bare clone caching, parallel fetches, atomic deploys
+- 📴 **Offline-capable** — decouple mirroring from deployment
+- 📦 **OCI output** — build container images with Puppet code for use with openvox-operator
 
 ## Why not r10k or g10k?
 

@@ -1,6 +1,8 @@
+// Package deployer handles atomic deployment of Puppet environments to disk.
 package deployer
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -57,8 +59,8 @@ func New(envDir string, cache *cache.Manager, log *slog.Logger) *Deployer {
 }
 
 // DeployAll deploys all resolved environments to disk using atomic operations.
-func (d *Deployer) DeployAll(envs []resolver.ResolvedEnvironment, clean bool) error {
-	if err := os.MkdirAll(d.envDir, 0o755); err != nil {
+func (d *Deployer) DeployAll(ctx context.Context, envs []resolver.ResolvedEnvironment, clean bool) error {
+	if err := os.MkdirAll(d.envDir, 0o750); err != nil {
 		return fmt.Errorf("creating environment directory: %w", err)
 	}
 
@@ -70,7 +72,7 @@ func (d *Deployer) DeployAll(envs []resolver.ResolvedEnvironment, clean bool) er
 		}
 
 		d.log.Info("deploying environment", "name", env.Name)
-		if err := d.deployEnvironment(env); err != nil {
+		if err := d.deployEnvironment(ctx, env); err != nil {
 			return fmt.Errorf("deploying %q: %w", env.Name, err)
 		}
 		deployed[env.Name] = true
@@ -154,20 +156,22 @@ func (d *Deployer) Diff(envs []resolver.ResolvedEnvironment) ([]Change, error) {
 	return changes, nil
 }
 
-func (d *Deployer) deployEnvironment(env resolver.ResolvedEnvironment) error {
+func (d *Deployer) deployEnvironment(ctx context.Context, env resolver.ResolvedEnvironment) error {
 	envPath := filepath.Join(d.envDir, env.Name)
 	tmpPath := envPath + ".tmp"
 
 	// Clean up any leftover temp directory
-	os.RemoveAll(tmpPath)
+	if err := os.RemoveAll(tmpPath); err != nil {
+		d.log.Warn("failed to remove leftover temp dir", "path", tmpPath, "error", err)
+	}
 
-	if err := os.MkdirAll(tmpPath, 0o755); err != nil {
+	if err := os.MkdirAll(tmpPath, 0o750); err != nil {
 		return fmt.Errorf("creating temp dir: %w", err)
 	}
 
 	// Create modules directory
 	modulesDir := filepath.Join(tmpPath, "modules")
-	if err := os.MkdirAll(modulesDir, 0o755); err != nil {
+	if err := os.MkdirAll(modulesDir, 0o750); err != nil {
 		return fmt.Errorf("creating modules dir: %w", err)
 	}
 
@@ -180,19 +184,25 @@ func (d *Deployer) deployEnvironment(env resolver.ResolvedEnvironment) error {
 		}
 
 		d.log.Debug("deploying module", "env", env.Name, "module", mod.Name, "ref", ref)
-		if err := d.cache.Checkout(mod.GitURL, ref, modDir); err != nil {
-			os.RemoveAll(tmpPath)
+		if err := d.cache.Checkout(ctx, mod.GitURL, ref, modDir); err != nil {
+			if rmErr := os.RemoveAll(tmpPath); rmErr != nil {
+				d.log.Warn("failed to clean up temp dir after checkout error", "path", tmpPath, "error", rmErr)
+			}
 			return fmt.Errorf("checking out module %q: %w", mod.Name, err)
 		}
 	}
 
 	// Atomic swap
 	if err := os.RemoveAll(envPath); err != nil && !os.IsNotExist(err) {
-		os.RemoveAll(tmpPath)
+		if rmErr := os.RemoveAll(tmpPath); rmErr != nil {
+			d.log.Warn("failed to clean up temp dir after removal error", "path", tmpPath, "error", rmErr)
+		}
 		return fmt.Errorf("removing old environment: %w", err)
 	}
 	if err := os.Rename(tmpPath, envPath); err != nil {
-		os.RemoveAll(tmpPath)
+		if rmErr := os.RemoveAll(tmpPath); rmErr != nil {
+			d.log.Warn("failed to clean up temp dir after rename error", "path", tmpPath, "error", rmErr)
+		}
 		return fmt.Errorf("atomic rename: %w", err)
 	}
 

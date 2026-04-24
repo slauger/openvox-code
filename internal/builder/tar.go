@@ -2,6 +2,7 @@ package builder
 
 import (
 	"archive/tar"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -10,15 +11,16 @@ import (
 )
 
 // createTarFromDir creates a tar archive from a directory, prefixing all entries with targetPrefix.
-func createTarFromDir(srcDir, targetPrefix, outputPath string) error {
-	f, err := os.Create(outputPath)
+func createTarFromDir(srcDir, targetPrefix, outputPath string) (err error) {
+	cleanedOutput := filepath.Clean(outputPath)
+	f, err := os.Create(cleanedOutput)
 	if err != nil {
 		return fmt.Errorf("creating output file: %w", err)
 	}
-	defer f.Close()
+	defer func() { err = errors.Join(err, f.Close()) }()
 
 	tw := tar.NewWriter(f)
-	defer tw.Close()
+	defer func() { err = errors.Join(err, tw.Close()) }()
 
 	// Add directory entries for the prefix path
 	parts := strings.Split(targetPrefix, "/")
@@ -33,18 +35,33 @@ func createTarFromDir(srcDir, targetPrefix, outputPath string) error {
 		}
 	}
 
-	return filepath.Walk(srcDir, func(path string, info os.FileInfo, err error) error {
+	absSrcDir, err := filepath.Abs(srcDir)
+	if err != nil {
+		return fmt.Errorf("resolving source dir: %w", err)
+	}
+
+	return filepath.WalkDir(absSrcDir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 
-		relPath, err := filepath.Rel(srcDir, path)
+		relPath, err := filepath.Rel(absSrcDir, path)
 		if err != nil {
 			return fmt.Errorf("getting relative path: %w", err)
 		}
 
 		if relPath == "." {
 			return nil
+		}
+
+		// Validate the path stays within the source directory
+		if _, err := filepath.Rel(absSrcDir, filepath.Clean(path)); err != nil {
+			return fmt.Errorf("path escapes source directory: %w", err)
+		}
+
+		info, err := d.Info()
+		if err != nil {
+			return fmt.Errorf("getting file info for %s: %w", relPath, err)
 		}
 
 		tarPath := filepath.Join(targetPrefix, relPath)
@@ -69,16 +86,25 @@ func createTarFromDir(srcDir, targetPrefix, outputPath string) error {
 			return nil
 		}
 
-		file, err := os.Open(path)
-		if err != nil {
-			return fmt.Errorf("opening %s: %w", path, err)
-		}
-		defer file.Close()
-
-		if _, err := io.Copy(tw, file); err != nil {
-			return fmt.Errorf("writing %s: %w", tarPath, err)
+		if err := addFileToTar(tw, path); err != nil {
+			return fmt.Errorf("adding %s to tar: %w", tarPath, err)
 		}
 
 		return nil
 	})
+}
+
+// addFileToTar reads a file and writes its contents to the tar writer.
+func addFileToTar(tw *tar.Writer, path string) (err error) {
+	file, err := os.Open(path) // #nosec G304 -- path is validated by WalkDir within a known directory
+	if err != nil {
+		return fmt.Errorf("opening %s: %w", path, err)
+	}
+	defer func() { err = errors.Join(err, file.Close()) }()
+
+	if _, err := io.Copy(tw, file); err != nil {
+		return fmt.Errorf("writing %s: %w", path, err)
+	}
+
+	return nil
 }
