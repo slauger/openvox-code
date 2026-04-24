@@ -16,10 +16,25 @@ type BranchLister interface {
 
 // ResolvedModule represents a module ready for deployment.
 type ResolvedModule struct {
-	Name   string
-	GitURL string
-	Ref    string
-	SHA    string // Set after fetching, empty during pre-fetch resolve
+	Name      string
+	GitURL    string
+	Ref       string
+	SHA       string // Set after fetching, empty during pre-fetch resolve
+	TargetDir string // Parent directory (default: "modules")
+	InstallAs string // Directory name (default: Name)
+}
+
+// InstallPath returns the relative path where this module should be installed.
+func (m *ResolvedModule) InstallPath() string {
+	dir := m.TargetDir
+	if dir == "" {
+		dir = "modules"
+	}
+	name := m.InstallAs
+	if name == "" {
+		name = m.Name
+	}
+	return dir + "/" + name
 }
 
 // ResolvedEnvironment represents an environment with all modules resolved.
@@ -27,6 +42,7 @@ type ResolvedEnvironment struct {
 	Name           string
 	ControlRepoURL string
 	Ref            string
+	ModuleFilePath string // Path within control repo to per-branch module list
 	Modules        []ResolvedModule
 }
 
@@ -90,6 +106,7 @@ func (r *Resolver) ExpandDiscovery(ctx context.Context, envs []ResolvedEnvironme
 				Name:           branch,
 				ControlRepoURL: env.ControlRepoURL,
 				Ref:            branch,
+				ModuleFilePath: env.ModuleFilePath,
 			})
 		}
 	}
@@ -153,6 +170,7 @@ func (r *Resolver) resolveSourceEnvironments(src config.Source) []ResolvedEnviro
 				Name:           "__source_discovery__",
 				ControlRepoURL: gitURL,
 				Ref:            "__all__",
+				ModuleFilePath: src.ModuleFile,
 			},
 		}
 	}
@@ -163,6 +181,7 @@ func (r *Resolver) resolveSourceEnvironments(src config.Source) []ResolvedEnviro
 			Name:           branch,
 			ControlRepoURL: gitURL,
 			Ref:            branch,
+			ModuleFilePath: src.ModuleFile,
 		})
 	}
 	return envs
@@ -180,9 +199,11 @@ func (r *Resolver) collectModules(env *config.Environment) ([]ResolvedModule, er
 		for _, m := range modules {
 			gitURL := r.cfg.ResolveGitURL(m.Git)
 			moduleMap[m.Name] = ResolvedModule{
-				Name:   m.Name,
-				GitURL: gitURL,
-				Ref:    m.Ref,
+				Name:      m.Name,
+				GitURL:    gitURL,
+				Ref:       m.Ref,
+				TargetDir: m.TargetDir,
+				InstallAs: m.InstallAs,
 			}
 		}
 	}
@@ -191,9 +212,11 @@ func (r *Resolver) collectModules(env *config.Environment) ([]ResolvedModule, er
 	for _, m := range env.Modules {
 		gitURL := r.cfg.ResolveGitURL(m.Git)
 		moduleMap[m.Name] = ResolvedModule{
-			Name:   m.Name,
-			GitURL: gitURL,
-			Ref:    m.Ref,
+			Name:      m.Name,
+			GitURL:    gitURL,
+			Ref:       m.Ref,
+			TargetDir: m.TargetDir,
+			InstallAs: m.InstallAs,
 		}
 	}
 

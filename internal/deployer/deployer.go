@@ -11,7 +11,9 @@ import (
 	"strings"
 
 	"github.com/slauger/openvox-code/internal/cache"
+	"github.com/slauger/openvox-code/internal/config"
 	"github.com/slauger/openvox-code/internal/resolver"
+	"gopkg.in/yaml.v3"
 )
 
 // Change describes a deployment difference.
@@ -66,16 +68,16 @@ func (d *Deployer) DeployAll(ctx context.Context, envs []resolver.ResolvedEnviro
 
 	deployed := make(map[string]bool)
 
-	for _, env := range envs {
-		if env.Name == "__source_discovery__" {
+	for i := range envs {
+		if envs[i].Name == "__source_discovery__" {
 			continue
 		}
 
-		d.log.Info("deploying environment", "name", env.Name)
-		if err := d.deployEnvironment(ctx, env); err != nil {
-			return fmt.Errorf("deploying %q: %w", env.Name, err)
+		d.log.Info("deploying environment", "name", envs[i].Name)
+		if err := d.deployEnvironment(ctx, &envs[i]); err != nil {
+			return fmt.Errorf("deploying %q: %w", envs[i].Name, err)
 		}
-		deployed[env.Name] = true
+		deployed[envs[i].Name] = true
 	}
 
 	if clean {
@@ -156,57 +158,128 @@ func (d *Deployer) Diff(envs []resolver.ResolvedEnvironment) ([]Change, error) {
 	return changes, nil
 }
 
-func (d *Deployer) deployEnvironment(ctx context.Context, env resolver.ResolvedEnvironment) error {
+func (d *Deployer) deployEnvironment(ctx context.Context, env *resolver.ResolvedEnvironment) error {
 	envPath := filepath.Join(d.envDir, env.Name)
 	tmpPath := envPath + ".tmp"
 
-	// Clean up any leftover temp directory
-	if err := os.RemoveAll(tmpPath); err != nil {
-		d.log.Warn("failed to remove leftover temp dir", "path", tmpPath, "error", err)
+	cleanup := func() {
+		if err := os.RemoveAll(tmpPath); err != nil {
+			d.log.Warn("failed to clean up temp dir", "path", tmpPath, "error", err)
+		}
 	}
+
+	// Clean up any leftover temp directory
+	cleanup()
 
 	if err := os.MkdirAll(tmpPath, 0o750); err != nil {
 		return fmt.Errorf("creating temp dir: %w", err)
 	}
 
-	// Create modules directory
-	modulesDir := filepath.Join(tmpPath, "modules")
-	if err := os.MkdirAll(modulesDir, 0o750); err != nil {
-		return fmt.Errorf("creating modules dir: %w", err)
+	// Step 1: If this environment comes from a control repo source, checkout the
+	// control repo as the base of the environment (manifests/, hieradata/, etc.)
+	if env.ControlRepoURL != "" {
+		ref := env.Ref
+		d.log.Debug("checking out control repo", "env", env.Name, "url", env.ControlRepoURL, "ref", ref)
+		if err := d.cache.Checkout(ctx, env.ControlRepoURL, ref, tmpPath); err != nil {
+			cleanup()
+			return fmt.Errorf("checking out control repo for %q: %w", env.Name, err)
+		}
 	}
 
-	// Deploy each module
-	for _, mod := range env.Modules {
-		modDir := filepath.Join(modulesDir, mod.Name)
+	// Step 2: Read per-environment module file from the checked-out control repo
+	// These modules are merged with (and override) the globally-resolved modules.
+	modules := env.Modules
+	if env.ModuleFilePath != "" && env.ControlRepoURL != "" {
+		localModules, err := d.readModuleFile(filepath.Join(tmpPath, filepath.Clean(env.ModuleFilePath)))
+		if err != nil {
+			d.log.Debug("no module file found", "env", env.Name, "path", env.ModuleFilePath, "error", err)
+		} else {
+			modules = mergeModules(modules, localModules)
+			d.log.Info("loaded modules from control repo", "env", env.Name, "path", env.ModuleFilePath, "count", len(localModules))
+		}
+	}
+
+	// Step 3: Deploy each module into its target directory
+	for i := range modules {
+		mod := &modules[i]
+		modDir := filepath.Join(tmpPath, mod.InstallPath())
+
+		if err := os.MkdirAll(filepath.Dir(modDir), 0o750); err != nil {
+			cleanup()
+			return fmt.Errorf("creating parent dir for module %q: %w", mod.Name, err)
+		}
+
+		// Ensure the module repo is cached (may not be if discovered via modules.yaml)
+		if err := d.cache.EnsureClone(ctx, mod.GitURL); err != nil {
+			cleanup()
+			return fmt.Errorf("fetching module %q from %s: %w", mod.Name, mod.GitURL, err)
+		}
+
 		ref := mod.SHA
 		if ref == "" {
 			ref = mod.Ref
 		}
 
-		d.log.Debug("deploying module", "env", env.Name, "module", mod.Name, "ref", ref)
+		d.log.Debug("deploying module", "env", env.Name, "module", mod.Name, "ref", ref, "path", mod.InstallPath())
 		if err := d.cache.Checkout(ctx, mod.GitURL, ref, modDir); err != nil {
-			if rmErr := os.RemoveAll(tmpPath); rmErr != nil {
-				d.log.Warn("failed to clean up temp dir after checkout error", "path", tmpPath, "error", rmErr)
-			}
+			cleanup()
 			return fmt.Errorf("checking out module %q: %w", mod.Name, err)
 		}
 	}
 
 	// Atomic swap
 	if err := os.RemoveAll(envPath); err != nil && !os.IsNotExist(err) {
-		if rmErr := os.RemoveAll(tmpPath); rmErr != nil {
-			d.log.Warn("failed to clean up temp dir after removal error", "path", tmpPath, "error", rmErr)
-		}
+		cleanup()
 		return fmt.Errorf("removing old environment: %w", err)
 	}
 	if err := os.Rename(tmpPath, envPath); err != nil {
-		if rmErr := os.RemoveAll(tmpPath); rmErr != nil {
-			d.log.Warn("failed to clean up temp dir after rename error", "path", tmpPath, "error", rmErr)
-		}
+		cleanup()
 		return fmt.Errorf("atomic rename: %w", err)
 	}
 
 	return nil
+}
+
+// readModuleFile reads a YAML module list from a file inside a checked-out environment.
+func (d *Deployer) readModuleFile(path string) ([]resolver.ResolvedModule, error) {
+	data, err := os.ReadFile(filepath.Clean(path))
+	if err != nil {
+		return nil, err
+	}
+
+	var mf config.ModuleFile
+	if err := yaml.Unmarshal(data, &mf); err != nil {
+		return nil, fmt.Errorf("parsing module file: %w", err)
+	}
+
+	modules := make([]resolver.ResolvedModule, 0, len(mf.Modules))
+	for _, m := range mf.Modules {
+		modules = append(modules, resolver.ResolvedModule{
+			Name:      m.Name,
+			GitURL:    m.Git,
+			Ref:       m.Ref,
+			TargetDir: m.TargetDir,
+			InstallAs: m.InstallAs,
+		})
+	}
+	return modules, nil
+}
+
+// mergeModules merges environment-local modules into global modules.
+// Local modules override global modules with the same name.
+func mergeModules(global, local []resolver.ResolvedModule) []resolver.ResolvedModule {
+	merged := make(map[string]resolver.ResolvedModule)
+	for _, m := range global {
+		merged[m.Name] = m
+	}
+	for _, m := range local {
+		merged[m.Name] = m
+	}
+	result := make([]resolver.ResolvedModule, 0, len(merged))
+	for _, m := range merged {
+		result = append(result, m)
+	}
+	return result
 }
 
 func (d *Deployer) cleanStale(deployed map[string]bool) error {

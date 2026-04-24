@@ -60,9 +60,24 @@ func (b *BranchSpec) UnmarshalYAML(value *yaml.Node) error {
 
 // Module defines a Puppet module to be deployed.
 type Module struct {
-	Name string `yaml:"name"`
-	Git  string `yaml:"git"`
-	Ref  string `yaml:"ref"`
+	Name      string `yaml:"name"`
+	Git       string `yaml:"git"`
+	Ref       string `yaml:"ref"`
+	TargetDir string `yaml:"target_dir,omitempty"` // Parent directory (default: "modules")
+	InstallAs string `yaml:"install_as,omitempty"` // Directory name (default: Name)
+}
+
+// InstallPath returns the relative path where this module should be installed.
+func (m *Module) InstallPath() string {
+	dir := m.TargetDir
+	if dir == "" {
+		dir = "modules"
+	}
+	name := m.InstallAs
+	if name == "" {
+		name = m.Name
+	}
+	return dir + "/" + name
 }
 
 // Environment defines a static environment declaration.
@@ -70,6 +85,11 @@ type Environment struct {
 	Ref        string   `yaml:"ref"`
 	ModuleSets []string `yaml:"modulesets,omitempty"`
 	Modules    []Module `yaml:"modules,omitempty"`
+}
+
+// ModuleFile represents a per-environment module list read from a control repo branch.
+type ModuleFile struct {
+	Modules []Module `yaml:"modules"`
 }
 
 // Overrides contains global override settings.
