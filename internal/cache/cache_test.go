@@ -50,3 +50,39 @@ func TestRepoPath(t *testing.T) {
 		t.Errorf("RepoPath() = %q, want %q", got, want)
 	}
 }
+
+func TestBaseDir(t *testing.T) {
+	m := New("/var/cache/openvox-code", nil)
+	if got := m.BaseDir(); got != "/var/cache/openvox-code" {
+		t.Errorf("BaseDir() = %q, want %q", got, "/var/cache/openvox-code")
+	}
+}
+
+func TestValidateGitArgs(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    []string
+		wantErr bool
+	}{
+		{name: "allowed subcommand", args: []string{"clone", "--bare", "url"}, wantErr: false},
+		{name: "fetch with prune", args: []string{"-C", "/path", "fetch", "--prune"}, wantErr: false},
+		{name: "rev-parse", args: []string{"-C", "/path", "rev-parse", "--verify", "HEAD"}, wantErr: false},
+		{name: "for-each-ref", args: []string{"-C", "/path", "for-each-ref"}, wantErr: false},
+		{name: "archive", args: []string{"-C", "/path", "archive", "--format=tar", "abc123"}, wantErr: false},
+		{name: "disallowed subcommand", args: []string{"push", "origin"}, wantErr: true},
+		{name: "disallowed rm", args: []string{"-C", "/path", "rm", "file"}, wantErr: true},
+		{name: "no args", args: []string{}, wantErr: true},
+		{name: "only flags", args: []string{"-C", "/path"}, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateGitArgs(tt.args)
+			if tt.wantErr && err == nil {
+				t.Error("expected error, got nil")
+			}
+			if !tt.wantErr && err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}
