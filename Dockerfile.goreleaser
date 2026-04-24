@@ -1,0 +1,15 @@
+FROM gcr.io/distroless/static-debian12:nonroot
+
+LABEL org.opencontainers.image.title="openvox-code"
+LABEL org.opencontainers.image.description="Fast, Git-native Puppet environment deployment tool"
+LABEL org.opencontainers.image.vendor="Simon Lauger"
+LABEL org.opencontainers.image.url="https://github.com/slauger/openvox-code"
+LABEL org.opencontainers.image.source="https://github.com/slauger/openvox-code"
+LABEL org.opencontainers.image.licenses="MIT"
+
+WORKDIR /
+COPY openvox-code /openvox-code
+
+USER 65532:65532
+
+ENTRYPOINT ["/openvox-code"]

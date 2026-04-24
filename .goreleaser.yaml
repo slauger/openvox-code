@@ -1,0 +1,81 @@
+version: 2
+
+project_name: openvox-code
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - main: ./cmd/openvox-code
+    binary: openvox-code
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.ShortCommit}}
+      - -X main.date={{.Date}}
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
+
+archives:
+  - format: tar.gz
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    format_overrides:
+      - goos: windows
+        format: zip
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
+      - "^chore:"
+
+dockers:
+  - image_templates:
+      - "ghcr.io/slauger/openvox-code:{{ .Version }}-amd64"
+    use: buildx
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--label=org.opencontainers.image.title={{ .ProjectName }}"
+      - "--label=org.opencontainers.image.version={{ .Version }}"
+      - "--label=org.opencontainers.image.source={{ .GitURL }}"
+    dockerfile: Dockerfile.goreleaser
+    goarch: amd64
+
+  - image_templates:
+      - "ghcr.io/slauger/openvox-code:{{ .Version }}-arm64"
+    use: buildx
+    build_flag_templates:
+      - "--platform=linux/arm64"
+      - "--label=org.opencontainers.image.title={{ .ProjectName }}"
+      - "--label=org.opencontainers.image.version={{ .Version }}"
+      - "--label=org.opencontainers.image.source={{ .GitURL }}"
+    dockerfile: Dockerfile.goreleaser
+    goarch: arm64
+
+docker_manifests:
+  - name_template: "ghcr.io/slauger/openvox-code:{{ .Version }}"
+    image_templates:
+      - "ghcr.io/slauger/openvox-code:{{ .Version }}-amd64"
+      - "ghcr.io/slauger/openvox-code:{{ .Version }}-arm64"
+  - name_template: "ghcr.io/slauger/openvox-code:latest"
+    image_templates:
+      - "ghcr.io/slauger/openvox-code:{{ .Version }}-amd64"
+      - "ghcr.io/slauger/openvox-code:{{ .Version }}-arm64"
