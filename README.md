@@ -45,19 +45,97 @@ docker pull ghcr.io/slauger/openvox-code:latest
 ## Quick Start
 
 ```bash
-# Fetch and deploy all environments
 openvox-code sync --config openvox-code.yaml
 ```
 
-Minimal configuration (`openvox-code.yaml`):
+Minimal configuration — deploy all branches from a control repo:
 
 ```yaml
-cachedir: /var/cache/openvox-code
-environmentdir: /etc/puppetlabs/code/environments
+apiVersion: openvox.voxpupuli.org/v1alpha1
+kind: CodeConfig
+spec:
+  cachedir: /var/cache/openvox-code
+  environmentdir: /tmp/openvox-code/environments
+  sources:
+    - url: https://github.com/example/puppet-control-repo.git
+      branchSelector: {}
+      modulefiles:
+        - name: modules.yaml
+          required: true
+```
 
-sources:
-  - url: https://github.com/example/control-repo.git
-    branches: all
+## Configuration
+
+```yaml
+apiVersion: openvox.voxpupuli.org/v1alpha1
+kind: CodeConfig
+spec:
+  cachedir: /var/cache/openvox-code
+  environmentdir: /tmp/openvox-code/environments
+
+  sources:
+    - url: https://github.com/example/puppet-control-repo.git
+      # Branch selector with glob pattern matching
+      branchSelector:
+        matchPatterns: ["production", "staging", "feature/*"]
+        excludePatterns: ["feature/wip-*"]
+      # Per-branch module files from inside the control repo
+      modulefiles:
+        - name: modules.yaml
+          required: true
+        - name: team-overrides.yaml
+          required: false
+
+  # Global module sets shared across environments
+  modulesets:
+    base:
+      - name: stdlib
+        git: https://github.com/puppetlabs/puppetlabs-stdlib.git
+        ref: v9.7.0
+      - name: concat
+        git: https://github.com/puppetlabs/puppetlabs-concat.git
+        ref: v9.1.0
+
+  # Static environments with pinned versions
+  environments:
+    production:
+      ref: v1.5.0
+      modulesets: [base]
+      modules:
+        - name: profiles
+          git: https://github.com/example/puppet-profiles.git
+          follow_branch: true  # try 'production' branch, fall back to ref
+          ref: main
+        - name: myapp
+          git: https://github.com/example/puppet-myapp.git
+          ref: main
+          target_dir: site-modules  # install into site-modules/ instead of modules/
+
+  git:
+    ssh_key: /path/to/id_ed25519
+
+  overrides:
+    gitmirrors:
+      github.com: https://github-mirror.internal
+
+  oci:
+    registry: ghcr.io/example/puppet-environments
+    tag: latest
+```
+
+Per-branch module file (`modules.yaml` inside the control repo):
+
+```yaml
+modules:
+  - name: stdlib
+    git: https://github.com/puppetlabs/puppetlabs-stdlib.git
+    ref: v9.7.0
+  - name: profiles
+    git: https://github.com/example/puppet-profiles.git
+    follow_branch: true
+    ref: main
+exclude:
+  - firewall  # remove this global module from this environment
 ```
 
 ## Commands
@@ -74,14 +152,14 @@ openvox-code lock       Generate/update lockfile
 
 ## CI/CD Usage
 
-Build and push an OCI image in your CI pipeline:
-
 ```bash
 # Sync environments locally
 openvox-code sync --config openvox-code.yaml
 
 # Build and push OCI image
-openvox-code build --config openvox-code.yaml --registry ghcr.io/example/puppet-envs --tag v1.0.0 --push
+openvox-code build --config openvox-code.yaml \
+  --registry ghcr.io/example/puppet-envs \
+  --tag v1.0.0 --push
 ```
 
 ## Documentation
