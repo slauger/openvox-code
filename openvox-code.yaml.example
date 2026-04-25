@@ -25,11 +25,24 @@ spec:
         excludePatterns:
           - "feature/wip-*"  # exclude work-in-progress branches
 
+      # Global modules for all environments from this source
+      # These are deployed unless overridden or excluded by per-branch module files
+      modulesets: [base]
+
+      # Additional inline modules for all branches from this source
+      # modules:
+      #   - name: site_utils
+      #     git: https://github.com/example/puppet-site-utils.git
+      #     follow_branch: true
+      #     ref: main
+
       # Per-branch module files (read from inside the checked-out branch)
-      # Each branch can define its own modules, overriding global modulesets
+      # Each branch can define its own modules, overriding the global ones above
       modulefiles:
-        modules.yaml: required      # sync fails if missing
-        team-overrides.yaml: optional  # silently skipped if missing
+        - name: modules.yaml
+          required: true
+        - name: "modules.d/*.yaml"
+          required: false
 
   # Reusable named groups of modules (deployed globally unless excluded per-environment)
   modulesets:

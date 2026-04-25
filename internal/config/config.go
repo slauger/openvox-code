@@ -49,7 +49,9 @@ type ModuleFileRef struct {
 type Source struct {
 	URL            string          `yaml:"url"`
 	BranchSelector BranchSelector  `yaml:"branchSelector"`
-	ModuleFiles    []ModuleFileRef `yaml:"modulefiles,omitempty"`
+	ModuleSets     []string        `yaml:"modulesets,omitempty"`  // Global module sets applied to all branches
+	Modules        []Module        `yaml:"modules,omitempty"`     // Additional modules for all branches
+	ModuleFiles    []ModuleFileRef `yaml:"modulefiles,omitempty"` // Per-branch module files from control repo
 }
 
 // BranchSelector defines which branches to include or exclude using glob patterns.
@@ -350,8 +352,8 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("at least one source or environment must be defined")
 	}
 
-	for _, src := range c.Sources {
-		if src.URL == "" {
+	for i := range c.Sources {
+		if c.Sources[i].URL == "" {
 			return fmt.Errorf("source url is required")
 		}
 	}

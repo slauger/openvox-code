@@ -79,7 +79,10 @@ func (r *Resolver) Resolve() ([]ResolvedEnvironment, error) {
 
 	// Resolve source-based (dynamic) environments
 	for i := range r.cfg.Sources {
-		srcEnvs := r.resolveSourceEnvironments(&r.cfg.Sources[i])
+		srcEnvs, err := r.resolveSourceEnvironments(&r.cfg.Sources[i])
+		if err != nil {
+			return nil, err
+		}
 		envs = append(envs, srcEnvs...)
 	}
 
@@ -115,6 +118,7 @@ func (r *Resolver) ExpandDiscovery(ctx context.Context, envs []ResolvedEnvironme
 				Name:           branch,
 				ControlRepoURL: env.ControlRepoURL,
 				Ref:            branch,
+				Modules:        env.Modules,
 				ModuleFiles:    env.ModuleFiles,
 			})
 		}
@@ -180,9 +184,15 @@ func containsGlob(pattern string) bool {
 	return false
 }
 
-func (r *Resolver) resolveSourceEnvironments(src *config.Source) []ResolvedEnvironment {
+func (r *Resolver) resolveSourceEnvironments(src *config.Source) ([]ResolvedEnvironment, error) {
 	gitURL := r.cfg.ResolveGitURL(src.URL)
 	moduleFiles := src.ModuleFiles
+
+	// Resolve source-level modules from modulesets + inline modules
+	sourceModules, err := r.collectSourceModules(src)
+	if err != nil {
+		return nil, fmt.Errorf("source %q: %w", src.URL, err)
+	}
 
 	selector := src.BranchSelector
 
@@ -193,14 +203,14 @@ func (r *Resolver) resolveSourceEnvironments(src *config.Source) []ResolvedEnvir
 				Name:           "__source_discovery__",
 				ControlRepoURL: gitURL,
 				Ref:            "__all__",
+				Modules:        sourceModules,
 				ModuleFiles:    moduleFiles,
 				BranchSelector: &selector,
 			},
-		}
+		}, nil
 	}
 
 	// matchPatterns with globs also need discovery (filtering happens in ExpandDiscovery)
-	// Only static exact-match patterns can be resolved without discovery
 	hasGlobs := false
 	for _, p := range src.BranchSelector.MatchPatterns {
 		if containsGlob(p) {
@@ -210,16 +220,16 @@ func (r *Resolver) resolveSourceEnvironments(src *config.Source) []ResolvedEnvir
 	}
 
 	if hasGlobs {
-		// Needs discovery to expand globs against actual branches
 		return []ResolvedEnvironment{
 			{
 				Name:           "__source_discovery__",
 				ControlRepoURL: gitURL,
 				Ref:            "__patterns__",
+				Modules:        sourceModules,
 				ModuleFiles:    moduleFiles,
 				BranchSelector: &selector,
 			},
-		}
+		}, nil
 	}
 
 	// Exact branch names — no discovery needed
@@ -229,10 +239,11 @@ func (r *Resolver) resolveSourceEnvironments(src *config.Source) []ResolvedEnvir
 			Name:           branch,
 			ControlRepoURL: gitURL,
 			Ref:            branch,
+			Modules:        sourceModules,
 			ModuleFiles:    moduleFiles,
 		})
 	}
-	return envs
+	return envs, nil
 }
 
 func (r *Resolver) collectModules(env *config.Environment) ([]ResolvedModule, error) {
@@ -259,6 +270,47 @@ func (r *Resolver) collectModules(env *config.Environment) ([]ResolvedModule, er
 
 	// Add inline modules (override module set modules on conflict)
 	for _, m := range env.Modules {
+		gitURL := r.cfg.ResolveGitURL(m.Git)
+		moduleMap[m.Name] = ResolvedModule{
+			Name:         m.Name,
+			GitURL:       gitURL,
+			Ref:          m.Ref,
+			FollowBranch: m.FollowBranch,
+			TargetDir:    m.TargetDir,
+			InstallAs:    m.InstallAs,
+		}
+	}
+
+	modules := make([]ResolvedModule, 0, len(moduleMap))
+	for _, m := range moduleMap {
+		modules = append(modules, m)
+	}
+	return modules, nil
+}
+
+// collectSourceModules resolves modulesets and inline modules defined on a Source.
+func (r *Resolver) collectSourceModules(src *config.Source) ([]ResolvedModule, error) {
+	moduleMap := make(map[string]ResolvedModule)
+
+	for _, setName := range src.ModuleSets {
+		modules, ok := r.cfg.ModuleSets[setName]
+		if !ok {
+			return nil, fmt.Errorf("unknown moduleset %q", setName)
+		}
+		for _, m := range modules {
+			gitURL := r.cfg.ResolveGitURL(m.Git)
+			moduleMap[m.Name] = ResolvedModule{
+				Name:         m.Name,
+				GitURL:       gitURL,
+				Ref:          m.Ref,
+				FollowBranch: m.FollowBranch,
+				TargetDir:    m.TargetDir,
+				InstallAs:    m.InstallAs,
+			}
+		}
+	}
+
+	for _, m := range src.Modules {
 		gitURL := r.cfg.ResolveGitURL(m.Git)
 		moduleMap[m.Name] = ResolvedModule{
 			Name:         m.Name,
