@@ -7,11 +7,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 )
 
-// createTarFromDir creates a tar archive from a directory, prefixing all entries with targetPrefix.
-func createTarFromDir(srcDir, targetPrefix, outputPath string) (err error) {
+// createTarFromDir creates a tar archive from a directory.
+// Files are placed relative to the archive root (no prefix).
+func createTarFromDir(srcDir, outputPath string) (err error) {
 	cleanedOutput := filepath.Clean(outputPath)
 	f, err := os.Create(cleanedOutput)
 	if err != nil {
@@ -21,19 +21,6 @@ func createTarFromDir(srcDir, targetPrefix, outputPath string) (err error) {
 
 	tw := tar.NewWriter(f)
 	defer func() { err = errors.Join(err, tw.Close()) }()
-
-	// Add directory entries for the prefix path
-	parts := strings.Split(targetPrefix, "/")
-	for i := range parts {
-		dirPath := strings.Join(parts[:i+1], "/") + "/"
-		if err := tw.WriteHeader(&tar.Header{
-			Name:     dirPath,
-			Typeflag: tar.TypeDir,
-			Mode:     0o755,
-		}); err != nil {
-			return fmt.Errorf("writing dir header %s: %w", dirPath, err)
-		}
-	}
 
 	absSrcDir, err := filepath.Abs(srcDir)
 	if err != nil {
@@ -55,8 +42,8 @@ func createTarFromDir(srcDir, targetPrefix, outputPath string) (err error) {
 		}
 
 		// Validate the path stays within the source directory
-		if _, err := filepath.Rel(absSrcDir, filepath.Clean(path)); err != nil {
-			return fmt.Errorf("path escapes source directory: %w", err)
+		if _, pathErr := filepath.Rel(absSrcDir, filepath.Clean(path)); pathErr != nil {
+			return fmt.Errorf("path escapes source directory: %w", pathErr)
 		}
 
 		info, err := d.Info()
@@ -64,9 +51,8 @@ func createTarFromDir(srcDir, targetPrefix, outputPath string) (err error) {
 			return fmt.Errorf("getting file info for %s: %w", relPath, err)
 		}
 
-		tarPath := filepath.Join(targetPrefix, relPath)
-		// Normalize to forward slashes for tar
-		tarPath = filepath.ToSlash(tarPath)
+		// Use relative path directly (no prefix) — files at root of archive
+		tarPath := filepath.ToSlash(relPath)
 
 		header, err := tar.FileInfoHeader(info, "")
 		if err != nil {

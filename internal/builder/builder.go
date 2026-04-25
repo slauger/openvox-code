@@ -122,10 +122,10 @@ func (b *Builder) Save(img v1.Image, path string) error {
 }
 
 func (b *Builder) createLayer(envDir string) (v1.Layer, error) {
-	// Create a tar from the environment directory contents
-	// The files will be placed under /etc/puppetlabs/code/environments/ in the image
-	targetPrefix := "etc/puppetlabs/code/environments"
-
+	// Create a tar from the environment directory contents.
+	// Files are placed directly at the image root — the openvox-operator mounts
+	// the entire image as a volume to the Puppet environment path, so environments
+	// like "production/" appear at the root of the image filesystem.
 	tmpFile, err := os.CreateTemp("", "openvox-code-layer-*.tar")
 	if err != nil {
 		return nil, fmt.Errorf("creating temp file: %w", err)
@@ -135,7 +135,7 @@ func (b *Builder) createLayer(envDir string) (v1.Layer, error) {
 		return nil, fmt.Errorf("closing temp file: %w", err)
 	}
 
-	if err := createTarFromDir(envDir, targetPrefix, tmpPath); err != nil {
+	if err := createTarFromDir(envDir, tmpPath); err != nil {
 		if rmErr := os.Remove(tmpPath); rmErr != nil {
 			b.log.Warn("failed to remove temp file", "path", tmpPath, "error", rmErr)
 		}

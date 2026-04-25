@@ -184,8 +184,8 @@ func TestBuildLayerContents(t *testing.T) {
 
 	// Check for expected paths
 	expectedPrefixes := []string{
-		"etc/puppetlabs/code/environments/production/",
-		"etc/puppetlabs/code/environments/staging/",
+		"production/",
+		"staging/",
 	}
 
 	for _, prefix := range expectedPrefixes {
