@@ -86,6 +86,15 @@ func (b *Builder) Build(opts *Options) (v1.Image, error) {
 	}
 	cfg.Config.Labels["org.opencontainers.image.title"] = "openvox-code-environments"
 	cfg.Config.Labels["org.opencontainers.image.description"] = "Puppet environments built by openvox-code"
+	cfg.Config.Labels["org.opencontainers.image.vendor"] = "Vox Pupuli"
+	cfg.Config.Labels["org.opencontainers.image.source"] = "https://github.com/slauger/openvox-code"
+	cfg.Config.Labels["org.opencontainers.image.documentation"] = "https://slauger.github.io/openvox-code"
+	if opts.Tag != "" && opts.Tag != "latest" {
+		cfg.Config.Labels["org.opencontainers.image.version"] = opts.Tag
+	}
+	if opts.Registry != "" {
+		cfg.Config.Labels["org.opencontainers.image.url"] = opts.Registry
+	}
 
 	cfg.OS = opts.Platform.OS
 	cfg.Architecture = opts.Platform.Architecture
