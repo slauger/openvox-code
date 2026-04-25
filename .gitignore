@@ -31,6 +31,9 @@ go.work.sum
 bin/
 dist/
 
+# Claude Code
+.claude/
+
 # Editor/IDE
 # .idea/
 # .vscode/
