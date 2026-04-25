@@ -56,7 +56,7 @@ dockers:
       - "--label=org.opencontainers.image.title={{ .ProjectName }}"
       - "--label=org.opencontainers.image.version={{ .Version }}"
       - "--label=org.opencontainers.image.source={{ .GitURL }}"
-    dockerfile: Dockerfile.goreleaser
+    dockerfile: Containerfile.goreleaser
     goarch: amd64
 
   - image_templates:
@@ -67,7 +67,7 @@ dockers:
       - "--label=org.opencontainers.image.title={{ .ProjectName }}"
       - "--label=org.opencontainers.image.version={{ .Version }}"
       - "--label=org.opencontainers.image.source={{ .GitURL }}"
-    dockerfile: Dockerfile.goreleaser
+    dockerfile: Containerfile.goreleaser
     goarch: arm64
 
 docker_manifests:

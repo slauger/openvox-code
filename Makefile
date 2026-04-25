@@ -51,12 +51,12 @@ clean: ## Remove build artifacts
 
 ##@ Container
 
-.PHONY: docker-build
-docker-build: ## Build container image
-	$(CONTAINER_TOOL) build -t $(IMAGE_NAME):$(IMAGE_TAG) .
+.PHONY: container-build
+container-build: ## Build container image
+	$(CONTAINER_TOOL) build -f Containerfile -t $(IMAGE_NAME):$(IMAGE_TAG) .
 
-.PHONY: docker-push
-docker-push: ## Push container image
+.PHONY: container-push
+container-push: ## Push container image
 	$(CONTAINER_TOOL) push $(IMAGE_NAME):$(IMAGE_TAG)
 
 ##@ CI
