@@ -818,3 +818,74 @@ func TestValidateModuleMissingGit(t *testing.T) {
 		t.Errorf("error %q should mention git is required", err.Error())
 	}
 }
+
+func TestCredentialForHost(t *testing.T) {
+	gitCfg := GitConfig{
+		SSHKeyPath:       "/default/key",
+		SSHKnownHosts:    "/default/known_hosts",
+		CredentialHelper: "store",
+		Credentials: map[string]GitCredential{
+			"github.com": {
+				SSHKeyPath: "/github/key",
+			},
+			"gitlab.internal": {
+				CredentialHelper: "cache",
+				SSHKeyPath:       "/gitlab/key",
+				SSHKnownHosts:    "/gitlab/known_hosts",
+			},
+		},
+	}
+
+	tests := []struct {
+		name       string
+		gitURL     string
+		wantKey    string
+		wantHelper string
+	}{
+		{
+			name:    "github gets host-specific key",
+			gitURL:  "git@github.com:org/repo.git",
+			wantKey: "/github/key",
+		},
+		{
+			name:       "gitlab gets host-specific cred",
+			gitURL:     "https://gitlab.internal/org/repo.git",
+			wantKey:    "/gitlab/key",
+			wantHelper: "cache",
+		},
+		{
+			name:       "unknown host gets default",
+			gitURL:     "https://bitbucket.org/team/repo.git",
+			wantKey:    "/default/key",
+			wantHelper: "store",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cred := gitCfg.CredentialForHost(tt.gitURL)
+			if cred.SSHKeyPath != tt.wantKey {
+				t.Errorf("SSHKeyPath = %q, want %q", cred.SSHKeyPath, tt.wantKey)
+			}
+			if tt.wantHelper != "" && cred.CredentialHelper != tt.wantHelper {
+				t.Errorf("CredentialHelper = %q, want %q", cred.CredentialHelper, tt.wantHelper)
+			}
+		})
+	}
+}
+
+func TestCredentialForHostNoCredentials(t *testing.T) {
+	gitCfg := GitConfig{SSHKeyPath: "/default/key"}
+	cred := gitCfg.CredentialForHost("https://any.host/repo.git")
+	if cred.SSHKeyPath != "/default/key" {
+		t.Errorf("SSHKeyPath = %q, want /default/key", cred.SSHKeyPath)
+	}
+}
+
+func TestCredentialForHostEmpty(t *testing.T) {
+	gitCfg := GitConfig{}
+	cred := gitCfg.CredentialForHost("https://any.host/repo.git")
+	if cred.SSHKeyPath != "" || cred.CredentialHelper != "" {
+		t.Errorf("expected empty credential, got %+v", cred)
+	}
+}

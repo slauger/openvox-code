@@ -75,11 +75,11 @@ func loadConfig() (*config.Config, error) {
 
 func newCacheManager(cfg *config.Config, log *slog.Logger) *cache.Manager {
 	cm := cache.New(cfg.CacheDir, log)
-	if cfg.Git.SSHKeyPath != "" || cfg.Git.CredentialHelper != "" {
-		cm.SetAuth(cache.GitAuth{
-			SSHKeyPath:       cfg.Git.SSHKeyPath,
-			SSHKnownHosts:    cfg.Git.SSHKnownHosts,
-			CredentialHelper: cfg.Git.CredentialHelper,
+	gitCfg := cfg.Git
+	if gitCfg.SSHKeyPath != "" || gitCfg.CredentialHelper != "" || len(gitCfg.Credentials) > 0 {
+		cm.SetCredentialResolver(func(gitURL string) (sshKey, knownHosts, credentialHelper string) {
+			cred := gitCfg.CredentialForHost(gitURL)
+			return cred.SSHKeyPath, cred.SSHKnownHosts, cred.CredentialHelper
 		})
 	}
 	return cm

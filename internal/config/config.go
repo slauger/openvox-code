@@ -177,11 +177,38 @@ type Overrides struct {
 	GitMirrors map[string]string `yaml:"gitmirrors,omitempty"`
 }
 
-// GitConfig holds Git authentication settings.
-type GitConfig struct {
+// GitCredential defines authentication for a specific host or URL pattern.
+type GitCredential struct {
 	SSHKeyPath       string `yaml:"ssh_key,omitempty"`
 	SSHKnownHosts    string `yaml:"ssh_known_hosts,omitempty"`
 	CredentialHelper string `yaml:"credential_helper,omitempty"`
+}
+
+// GitConfig holds Git authentication settings.
+type GitConfig struct {
+	// Default credentials used when no host-specific match is found
+	SSHKeyPath       string `yaml:"ssh_key,omitempty"`
+	SSHKnownHosts    string `yaml:"ssh_known_hosts,omitempty"`
+	CredentialHelper string `yaml:"credential_helper,omitempty"`
+	// Per-host credentials (host → credential)
+	Credentials map[string]GitCredential `yaml:"credentials,omitempty"`
+}
+
+// CredentialForHost returns the credential config for a given Git URL.
+// Returns host-specific credentials if configured, otherwise the defaults.
+func (g *GitConfig) CredentialForHost(gitURL string) GitCredential {
+	if len(g.Credentials) > 0 {
+		for host, cred := range g.Credentials {
+			if hostMatches(gitURL, host) {
+				return cred
+			}
+		}
+	}
+	return GitCredential{
+		SSHKeyPath:       g.SSHKeyPath,
+		SSHKnownHosts:    g.SSHKnownHosts,
+		CredentialHelper: g.CredentialHelper,
+	}
 }
 
 // OCIConfig holds OCI image output configuration.

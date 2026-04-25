@@ -25,18 +25,14 @@ var allowedGitSubcommands = map[string]bool{
 	"-C":           true,
 }
 
-// GitAuth holds Git authentication settings passed to git commands.
-type GitAuth struct {
-	SSHKeyPath       string
-	SSHKnownHosts    string
-	CredentialHelper string
-}
+// CredentialResolver returns credentials for a given Git URL.
+type CredentialResolver func(gitURL string) (sshKey, knownHosts, credentialHelper string)
 
 // Manager handles bare clone Git caches.
 type Manager struct {
-	baseDir string
-	auth    GitAuth
-	log     *slog.Logger
+	baseDir            string
+	credentialResolver CredentialResolver
+	log                *slog.Logger
 }
 
 // New creates a new cache Manager.
@@ -47,9 +43,9 @@ func New(baseDir string, log *slog.Logger) *Manager {
 	}
 }
 
-// SetAuth configures Git authentication for all subsequent operations.
-func (m *Manager) SetAuth(auth GitAuth) {
-	m.auth = auth
+// SetCredentialResolver configures per-URL credential resolution.
+func (m *Manager) SetCredentialResolver(resolver CredentialResolver) {
+	m.credentialResolver = resolver
 }
 
 // BaseDir returns the base cache directory.
@@ -69,42 +65,47 @@ func (m *Manager) git(ctx context.Context, args ...string) ([]byte, error) {
 		return nil, err
 	}
 	cmd := exec.CommandContext(ctx, "git", args...) // #nosec G204 -- args validated above
-	m.applyAuth(cmd)
 	return cmd.Output()
 }
 
-// gitRun executes a git command and returns only the error (discarding stdout).
-func (m *Manager) gitRun(ctx context.Context, args ...string) error {
+// gitWithAuth executes a git command with URL-specific credentials.
+func (m *Manager) gitWithAuth(ctx context.Context, gitURL string, args ...string) error {
 	if err := validateGitArgs(args); err != nil {
 		return err
 	}
 	cmd := exec.CommandContext(ctx, "git", args...) // #nosec G204 -- args validated above
 	cmd.Stderr = os.Stderr
-	m.applyAuth(cmd)
+	m.applyAuthForURL(cmd, gitURL)
 	return cmd.Run()
 }
 
 // applyAuth sets environment variables on a git command for SSH key and credential helper auth.
-func (m *Manager) applyAuth(cmd *exec.Cmd) {
-	if m.auth.SSHKeyPath == "" && m.auth.CredentialHelper == "" {
+// If gitURL is provided and a credential resolver is set, per-URL credentials are used.
+func (m *Manager) applyAuthForURL(cmd *exec.Cmd, gitURL string) {
+	if m.credentialResolver == nil {
+		return
+	}
+
+	sshKey, knownHosts, credHelper := m.credentialResolver(gitURL)
+	if sshKey == "" && credHelper == "" {
 		return
 	}
 
 	cmd.Env = append(os.Environ(), cmd.Env...)
 
-	if m.auth.SSHKeyPath != "" {
-		sshCmd := fmt.Sprintf("ssh -i %s -o IdentitiesOnly=yes", m.auth.SSHKeyPath)
-		if m.auth.SSHKnownHosts != "" {
-			sshCmd += fmt.Sprintf(" -o UserKnownHostsFile=%s", m.auth.SSHKnownHosts)
+	if sshKey != "" {
+		sshCmd := fmt.Sprintf("ssh -i %s -o IdentitiesOnly=yes", sshKey)
+		if knownHosts != "" {
+			sshCmd += fmt.Sprintf(" -o UserKnownHostsFile=%s", knownHosts)
 		}
 		cmd.Env = append(cmd.Env, "GIT_SSH_COMMAND="+sshCmd)
 	}
 
-	if m.auth.CredentialHelper != "" {
+	if credHelper != "" {
 		cmd.Env = append(cmd.Env,
 			"GIT_CONFIG_COUNT=1",
 			"GIT_CONFIG_KEY_0=credential.helper",
-			"GIT_CONFIG_VALUE_0="+m.auth.CredentialHelper,
+			"GIT_CONFIG_VALUE_0="+credHelper,
 		)
 	}
 }
@@ -148,7 +149,7 @@ func (m *Manager) EnsureClone(ctx context.Context, gitURL string) error {
 	if _, err := os.Stat(filepath.Join(repoPath, "HEAD")); err == nil {
 		m.log.Debug("updating bare clone", "url", gitURL, "path", repoPath)
 		return m.retryNetworkOp(ctx, "fetch", gitURL, func() error {
-			return m.fetch(ctx, repoPath)
+			return m.fetch(ctx, gitURL, repoPath)
 		})
 	}
 
@@ -269,14 +270,14 @@ func (m *Manager) clone(ctx context.Context, gitURL, repoPath string) error {
 		return fmt.Errorf("creating cache dir: %w", err)
 	}
 
-	if err := m.gitRun(ctx, "clone", "--bare", "--mirror", gitURL, repoPath); err != nil {
+	if err := m.gitWithAuth(ctx, gitURL, "clone", "--bare", "--mirror", gitURL, repoPath); err != nil {
 		return fmt.Errorf("cloning %s: %w", gitURL, err)
 	}
 	return nil
 }
 
-func (m *Manager) fetch(ctx context.Context, repoPath string) error {
-	if err := m.gitRun(ctx, "-C", repoPath, "fetch", "--prune", "--all"); err != nil {
+func (m *Manager) fetch(ctx context.Context, gitURL, repoPath string) error {
+	if err := m.gitWithAuth(ctx, gitURL, "-C", repoPath, "fetch", "--prune", "--all"); err != nil {
 		return fmt.Errorf("fetching %s: %w", repoPath, err)
 	}
 	return nil
