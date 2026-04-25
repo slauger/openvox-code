@@ -1,6 +1,10 @@
 package cache
 
 import (
+	"context"
+	"errors"
+	"log/slog"
+	"os"
 	"testing"
 )
 
@@ -84,5 +88,74 @@ func TestValidateGitArgs(t *testing.T) {
 				t.Errorf("unexpected error: %v", err)
 			}
 		})
+	}
+}
+
+func testCacheLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+}
+
+func TestRetryNetworkOpSuccess(t *testing.T) {
+	m := New("/tmp/test", testCacheLogger())
+	calls := 0
+	err := m.retryNetworkOp(context.Background(), "test", "url", func() error {
+		calls++
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if calls != 1 {
+		t.Errorf("expected 1 call, got %d", calls)
+	}
+}
+
+func TestRetryNetworkOpRetryThenSuccess(t *testing.T) {
+	m := New("/tmp/test", testCacheLogger())
+	calls := 0
+	err := m.retryNetworkOp(context.Background(), "test", "url", func() error {
+		calls++
+		if calls < 3 {
+			return errors.New("transient error")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if calls != 3 {
+		t.Errorf("expected 3 calls, got %d", calls)
+	}
+}
+
+func TestRetryNetworkOpAllFail(t *testing.T) {
+	m := New("/tmp/test", testCacheLogger())
+	calls := 0
+	err := m.retryNetworkOp(context.Background(), "clone", "https://example.com/repo.git", func() error {
+		calls++
+		return errors.New("network error")
+	})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if calls != MaxRetries {
+		t.Errorf("expected %d calls, got %d", MaxRetries, calls)
+	}
+}
+
+func TestRetryNetworkOpContextCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	m := New("/tmp/test", testCacheLogger())
+	calls := 0
+	cancel() // Cancel immediately
+	err := m.retryNetworkOp(ctx, "fetch", "url", func() error {
+		calls++
+		return errors.New("will fail")
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if calls < 1 {
+		t.Errorf("expected at least 1 call, got %d", calls)
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // allowedGitSubcommands is the set of git subcommands that the cache manager
@@ -135,18 +136,52 @@ func validateGitArgs(args []string) error {
 	return fmt.Errorf("no git subcommand found in args")
 }
 
+// MaxRetries is the number of times to retry transient Git network operations.
+const MaxRetries = 3
+
 // EnsureClone ensures a bare clone exists for the given URL.
 // If the clone already exists, it fetches updates; otherwise it creates a new bare clone.
+// Transient network errors are retried with exponential backoff.
 func (m *Manager) EnsureClone(ctx context.Context, gitURL string) error {
 	repoPath := m.RepoPath(gitURL)
 
 	if _, err := os.Stat(filepath.Join(repoPath, "HEAD")); err == nil {
 		m.log.Debug("updating bare clone", "url", gitURL, "path", repoPath)
-		return m.fetch(ctx, repoPath)
+		return m.retryNetworkOp(ctx, "fetch", gitURL, func() error {
+			return m.fetch(ctx, repoPath)
+		})
 	}
 
 	m.log.Debug("creating bare clone", "url", gitURL, "path", repoPath)
-	return m.clone(ctx, gitURL, repoPath)
+	return m.retryNetworkOp(ctx, "clone", gitURL, func() error {
+		return m.clone(ctx, gitURL, repoPath)
+	})
+}
+
+// retryNetworkOp retries a Git network operation with exponential backoff.
+func (m *Manager) retryNetworkOp(ctx context.Context, op, gitURL string, fn func() error) error {
+	var lastErr error
+	for attempt := range MaxRetries {
+		lastErr = fn()
+		if lastErr == nil {
+			return nil
+		}
+
+		if attempt < MaxRetries-1 {
+			backoff := time.Duration(1<<uint(attempt)) * time.Second // 1s, 2s, 4s
+			m.log.Warn("git operation failed, retrying",
+				"op", op, "url", gitURL,
+				"attempt", attempt+1, "max", MaxRetries,
+				"backoff", backoff, "error", lastErr)
+
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(backoff):
+			}
+		}
+	}
+	return fmt.Errorf("git %s failed after %d attempts: %w", op, MaxRetries, lastErr)
 }
 
 // ResolveRef resolves a ref (branch, tag, or SHA) to a concrete SHA in the cache.
