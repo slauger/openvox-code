@@ -418,6 +418,292 @@ func TestResolveGitURL(t *testing.T) {
 	}
 }
 
+func TestParseK8sStyleConfig(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		wantErr string
+		check   func(t *testing.T, cfg *Config)
+	}{
+		{
+			name: "valid k8s style",
+			input: `apiVersion: openvox.voxpupuli.org/v1alpha1
+kind: CodeConfig
+spec:
+  cachedir: /tmp/cache
+  environmentdir: /tmp/envs
+  sources:
+    - url: https://example.com/repo.git
+`,
+			check: func(t *testing.T, cfg *Config) {
+				t.Helper()
+				if cfg.CacheDir != "/tmp/cache" {
+					t.Errorf("CacheDir = %q, want /tmp/cache", cfg.CacheDir)
+				}
+				if len(cfg.Sources) != 1 {
+					t.Errorf("Sources len = %d, want 1", len(cfg.Sources))
+				}
+			},
+		},
+		{
+			name: "wrong apiVersion",
+			input: `apiVersion: apps/v1
+kind: CodeConfig
+spec:
+  cachedir: /tmp/cache
+`,
+			wantErr: "unsupported apiVersion",
+		},
+		{
+			name: "wrong kind",
+			input: `apiVersion: openvox.voxpupuli.org/v1alpha1
+kind: Deployment
+spec:
+  cachedir: /tmp/cache
+`,
+			wantErr: "unsupported kind",
+		},
+		{
+			name: "flat format fallback",
+			input: `cachedir: /tmp/cache
+environmentdir: /tmp/envs
+sources:
+  - url: https://example.com/repo.git
+`,
+			check: func(t *testing.T, cfg *Config) {
+				t.Helper()
+				if cfg.CacheDir != "/tmp/cache" {
+					t.Errorf("CacheDir = %q, want /tmp/cache", cfg.CacheDir)
+				}
+			},
+		},
+		{
+			name: "k8s style with sources and branch selector",
+			input: `apiVersion: openvox.voxpupuli.org/v1alpha1
+kind: CodeConfig
+spec:
+  cachedir: /tmp/cache
+  environmentdir: /tmp/envs
+  sources:
+    - url: https://example.com/repo.git
+      branchSelector:
+        matchPatterns:
+          - "production"
+          - "staging"
+        excludePatterns:
+          - "wip-*"
+      modulefiles:
+        - name: modules.yaml
+          required: true
+`,
+			check: func(t *testing.T, cfg *Config) {
+				t.Helper()
+				if len(cfg.Sources) != 1 {
+					t.Fatalf("Sources len = %d, want 1", len(cfg.Sources))
+				}
+				src := cfg.Sources[0]
+				if len(src.BranchSelector.MatchPatterns) != 2 {
+					t.Errorf("MatchPatterns len = %d, want 2", len(src.BranchSelector.MatchPatterns))
+				}
+				if len(src.BranchSelector.ExcludePatterns) != 1 {
+					t.Errorf("ExcludePatterns len = %d, want 1", len(src.BranchSelector.ExcludePatterns))
+				}
+				if len(src.ModuleFiles) != 1 {
+					t.Fatalf("ModuleFiles len = %d, want 1", len(src.ModuleFiles))
+				}
+				if src.ModuleFiles[0].Name != "modules.yaml" {
+					t.Errorf("ModuleFile name = %q, want modules.yaml", src.ModuleFiles[0].Name)
+				}
+				if !src.ModuleFiles[0].Required {
+					t.Error("ModuleFile should be required")
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg, err := parse([]byte(tt.input))
+			if tt.wantErr != "" {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				if !strings.Contains(err.Error(), tt.wantErr) {
+					t.Errorf("error %q does not contain %q", err.Error(), tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if tt.check != nil {
+				tt.check(t, cfg)
+			}
+		})
+	}
+}
+
+func TestParseModuleFile(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		wantErr  string
+		wantMods int
+		wantExcl int
+	}{
+		{
+			name: "k8s style module file",
+			input: `apiVersion: openvox.voxpupuli.org/v1alpha1
+kind: ModuleFile
+spec:
+  modules:
+    - name: stdlib
+      git: https://example.com/stdlib.git
+      ref: v9.0.0
+    - name: apache
+      git: https://example.com/apache.git
+      follow_branch: true
+  exclude:
+    - deprecated_mod
+`,
+			wantMods: 2,
+			wantExcl: 1,
+		},
+		{
+			name: "flat module file",
+			input: `modules:
+  - name: stdlib
+    git: https://example.com/stdlib.git
+    ref: v9.0.0
+`,
+			wantMods: 1,
+			wantExcl: 0,
+		},
+		{
+			name: "wrong apiVersion in module file",
+			input: `apiVersion: apps/v1
+kind: ModuleFile
+spec:
+  modules: []
+`,
+			wantErr: "unsupported apiVersion",
+		},
+		{
+			name: "wrong kind in module file",
+			input: `apiVersion: openvox.voxpupuli.org/v1alpha1
+kind: WrongKind
+spec:
+  modules: []
+`,
+			wantErr: "unsupported kind",
+		},
+		{
+			name: "flat with exclude",
+			input: `modules:
+  - name: foo
+    git: https://example.com/foo.git
+exclude:
+  - bar
+  - baz
+`,
+			wantMods: 1,
+			wantExcl: 2,
+		},
+		{
+			name:     "empty modules",
+			input:    `modules: []`,
+			wantMods: 0,
+			wantExcl: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			spec, err := ParseModuleFile([]byte(tt.input))
+			if tt.wantErr != "" {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				if !strings.Contains(err.Error(), tt.wantErr) {
+					t.Errorf("error %q does not contain %q", err.Error(), tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if len(spec.Modules) != tt.wantMods {
+				t.Errorf("Modules len = %d, want %d", len(spec.Modules), tt.wantMods)
+			}
+			if len(spec.Exclude) != tt.wantExcl {
+				t.Errorf("Exclude len = %d, want %d", len(spec.Exclude), tt.wantExcl)
+			}
+		})
+	}
+}
+
+func TestModuleFileRefStruct(t *testing.T) {
+	dir := t.TempDir()
+	cfgFile := filepath.Join(dir, "openvox-code.yaml")
+
+	content := `apiVersion: openvox.voxpupuli.org/v1alpha1
+kind: CodeConfig
+spec:
+  cachedir: /tmp/cache
+  environmentdir: /tmp/envs
+  sources:
+    - url: https://example.com/repo.git
+      modulefiles:
+        - name: "modules.yaml"
+          required: true
+        - name: "extras/*.yaml"
+          required: false
+`
+	if err := os.WriteFile(cfgFile, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(cfgFile)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if len(cfg.Sources) != 1 {
+		t.Fatalf("Sources len = %d, want 1", len(cfg.Sources))
+	}
+	mfs := cfg.Sources[0].ModuleFiles
+	if len(mfs) != 2 {
+		t.Fatalf("ModuleFiles len = %d, want 2", len(mfs))
+	}
+	if mfs[0].Name != "modules.yaml" || !mfs[0].Required {
+		t.Errorf("ModuleFiles[0] = %+v, want name=modules.yaml required=true", mfs[0])
+	}
+	if mfs[1].Name != "extras/*.yaml" || mfs[1].Required {
+		t.Errorf("ModuleFiles[1] = %+v, want name=extras/*.yaml required=false", mfs[1])
+	}
+}
+
+func TestModuleInstallPath(t *testing.T) {
+	tests := []struct {
+		name string
+		mod  Module
+		want string
+	}{
+		{name: "defaults", mod: Module{Name: "stdlib"}, want: "modules/stdlib"},
+		{name: "custom target_dir", mod: Module{Name: "stdlib", TargetDir: "vendor"}, want: "vendor/stdlib"},
+		{name: "custom install_as", mod: Module{Name: "stdlib", InstallAs: "puppetlabs-stdlib"}, want: "modules/puppetlabs-stdlib"},
+		{name: "both custom", mod: Module{Name: "stdlib", TargetDir: "vendor", InstallAs: "puppetlabs-stdlib"}, want: "vendor/puppetlabs-stdlib"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.mod.InstallPath()
+			if got != tt.want {
+				t.Errorf("InstallPath() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestMerge(t *testing.T) {
 	base := &Config{
 		CacheDir:       "/original/cache",
@@ -459,5 +745,76 @@ func TestMerge(t *testing.T) {
 	}
 	if len(base.Environments) != 1 {
 		t.Errorf("Environments length = %d, want 1", len(base.Environments))
+	}
+}
+
+func TestMergeAllFields(t *testing.T) {
+	base := &Config{
+		CacheDir:       "/orig/cache",
+		EnvironmentDir: "/orig/envs",
+	}
+
+	other := &Config{
+		Git: GitConfig{
+			SSHKeyPath:       "/path/to/key",
+			SSHKnownHosts:    "/path/to/known_hosts",
+			CredentialHelper: "store",
+		},
+		Offline: true,
+		OCI:     &OCIConfig{Registry: "registry.example.com", Tag: "latest"},
+		Overrides: Overrides{
+			GitMirror:  "https://mirror.example.com",
+			GitMirrors: map[string]string{"github.com": "https://gh-mirror.example.com"},
+		},
+		Environments: map[string]*Environment{
+			"prod": {Ref: "main"},
+		},
+	}
+
+	base.merge(other)
+
+	if base.Git.SSHKeyPath != "/path/to/key" {
+		t.Errorf("SSHKeyPath = %q, want /path/to/key", base.Git.SSHKeyPath)
+	}
+	if base.Git.SSHKnownHosts != "/path/to/known_hosts" {
+		t.Errorf("SSHKnownHosts = %q", base.Git.SSHKnownHosts)
+	}
+	if base.Git.CredentialHelper != "store" {
+		t.Errorf("CredentialHelper = %q", base.Git.CredentialHelper)
+	}
+	if !base.Offline {
+		t.Error("Offline should be true")
+	}
+	if base.OCI == nil || base.OCI.Registry != "registry.example.com" {
+		t.Error("OCI not merged")
+	}
+	if base.Overrides.GitMirror != "https://mirror.example.com" {
+		t.Error("GitMirror not merged")
+	}
+	if base.Overrides.GitMirrors["github.com"] != "https://gh-mirror.example.com" {
+		t.Error("GitMirrors not merged")
+	}
+	if base.Environments["prod"] == nil {
+		t.Error("Environments not merged")
+	}
+}
+
+func TestValidateModuleMissingGit(t *testing.T) {
+	cfg := Config{
+		CacheDir:       "/tmp/cache",
+		EnvironmentDir: "/tmp/envs",
+		ModuleSets: map[string][]Module{
+			"base": {{Name: "stdlib"}},
+		},
+		Environments: map[string]*Environment{
+			"prod": {Ref: "main", ModuleSets: []string{"base"}},
+		},
+	}
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected error for module missing git")
+	}
+	if !strings.Contains(err.Error(), "git is required") {
+		t.Errorf("error %q should mention git is required", err.Error())
 	}
 }

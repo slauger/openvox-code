@@ -272,6 +272,239 @@ func TestListExistingModules(t *testing.T) {
 	}
 }
 
+func TestMergeModules(t *testing.T) {
+	tests := []struct {
+		name      string
+		global    []resolver.ResolvedModule
+		local     []resolver.ResolvedModule
+		exclude   map[string]bool
+		wantNames map[string]bool
+	}{
+		{
+			name: "local overrides global",
+			global: []resolver.ResolvedModule{
+				{Name: "stdlib", GitURL: "https://example.com/stdlib.git", Ref: "v1"},
+			},
+			local: []resolver.ResolvedModule{
+				{Name: "stdlib", GitURL: "https://fork.com/stdlib.git", Ref: "v2"},
+			},
+			exclude:   nil,
+			wantNames: map[string]bool{"stdlib": true},
+		},
+		{
+			name: "exclude removes global",
+			global: []resolver.ResolvedModule{
+				{Name: "stdlib", GitURL: "https://example.com/stdlib.git", Ref: "v1"},
+				{Name: "apache", GitURL: "https://example.com/apache.git", Ref: "v2"},
+			},
+			local:     nil,
+			exclude:   map[string]bool{"stdlib": true},
+			wantNames: map[string]bool{"apache": true},
+		},
+		{
+			name: "local adds new module",
+			global: []resolver.ResolvedModule{
+				{Name: "stdlib", GitURL: "https://example.com/stdlib.git", Ref: "v1"},
+			},
+			local: []resolver.ResolvedModule{
+				{Name: "custom", GitURL: "https://example.com/custom.git", Ref: "main"},
+			},
+			exclude:   nil,
+			wantNames: map[string]bool{"stdlib": true, "custom": true},
+		},
+		{
+			name:      "empty inputs",
+			global:    nil,
+			local:     nil,
+			exclude:   nil,
+			wantNames: map[string]bool{},
+		},
+		{
+			name: "exclude and local combined",
+			global: []resolver.ResolvedModule{
+				{Name: "stdlib", GitURL: "https://example.com/stdlib.git", Ref: "v1"},
+				{Name: "deprecated", GitURL: "https://example.com/dep.git", Ref: "v1"},
+			},
+			local: []resolver.ResolvedModule{
+				{Name: "replacement", GitURL: "https://example.com/rep.git", Ref: "main"},
+			},
+			exclude:   map[string]bool{"deprecated": true},
+			wantNames: map[string]bool{"stdlib": true, "replacement": true},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := mergeModules(tt.global, tt.local, tt.exclude)
+			got := make(map[string]bool)
+			for _, m := range result {
+				got[m.Name] = true
+			}
+			if len(got) != len(tt.wantNames) {
+				t.Errorf("got %d modules, want %d: %v", len(got), len(tt.wantNames), got)
+			}
+			for name := range tt.wantNames {
+				if !got[name] {
+					t.Errorf("missing module %q", name)
+				}
+			}
+		})
+	}
+}
+
+func TestMergeModulesLocalOverridesRef(t *testing.T) {
+	global := []resolver.ResolvedModule{
+		{Name: "stdlib", GitURL: "https://example.com/stdlib.git", Ref: "v1"},
+	}
+	local := []resolver.ResolvedModule{
+		{Name: "stdlib", GitURL: "https://fork.com/stdlib.git", Ref: "v2"},
+	}
+
+	result := mergeModules(global, local, nil)
+	if len(result) != 1 {
+		t.Fatalf("got %d modules, want 1", len(result))
+	}
+	if result[0].GitURL != "https://fork.com/stdlib.git" {
+		t.Errorf("GitURL = %q, want fork URL", result[0].GitURL)
+	}
+	if result[0].Ref != "v2" {
+		t.Errorf("Ref = %q, want v2", result[0].Ref)
+	}
+}
+
+func TestExpandModuleFilePaths(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create test files
+	if err := os.WriteFile(filepath.Join(dir, "modules.yaml"), []byte("modules: []"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	extrasDir := filepath.Join(dir, "extras")
+	if err := os.MkdirAll(extrasDir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(extrasDir, "a.yaml"), []byte("modules: []"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(extrasDir, "b.yaml"), []byte("modules: []"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	d := New(dir, nil, 4, testLogger())
+
+	tests := []struct {
+		name      string
+		pattern   string
+		wantCount int
+		wantErr   bool
+	}{
+		{name: "exact path", pattern: "modules.yaml", wantCount: 1},
+		{name: "glob pattern", pattern: "extras/*.yaml", wantCount: 2},
+		{name: "nonexistent exact", pattern: "missing.yaml", wantErr: true},
+		{name: "glob no match", pattern: "nope/*.yaml", wantCount: 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			paths, err := d.expandModuleFilePaths(dir, tt.pattern)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if len(paths) != tt.wantCount {
+				t.Errorf("got %d paths, want %d: %v", len(paths), tt.wantCount, paths)
+			}
+		})
+	}
+}
+
+func TestReadModuleFileK8sStyle(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "modules.yaml")
+
+	content := `apiVersion: openvox.voxpupuli.org/v1alpha1
+kind: ModuleFile
+spec:
+  modules:
+    - name: stdlib
+      git: https://example.com/stdlib.git
+      ref: v9.0.0
+    - name: apache
+      git: https://example.com/apache.git
+      follow_branch: true
+  exclude:
+    - old_module
+`
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	d := New(dir, nil, 4, testLogger())
+	parsed, err := d.readModuleFile(path)
+	if err != nil {
+		t.Fatalf("readModuleFile() error = %v", err)
+	}
+
+	if len(parsed.modules) != 2 {
+		t.Fatalf("modules len = %d, want 2", len(parsed.modules))
+	}
+	if parsed.modules[0].Name != "stdlib" || parsed.modules[0].Ref != "v9.0.0" {
+		t.Errorf("modules[0] = %+v", parsed.modules[0])
+	}
+	if !parsed.modules[1].FollowBranch {
+		t.Error("modules[1].FollowBranch should be true")
+	}
+	if !parsed.exclude["old_module"] {
+		t.Error("exclude should contain old_module")
+	}
+}
+
+func TestReadModuleFileFlatFormat(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "modules.yaml")
+
+	content := `modules:
+  - name: stdlib
+    git: https://example.com/stdlib.git
+    ref: v9.0.0
+    target_dir: vendor
+    install_as: puppetlabs-stdlib
+`
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	d := New(dir, nil, 4, testLogger())
+	parsed, err := d.readModuleFile(path)
+	if err != nil {
+		t.Fatalf("readModuleFile() error = %v", err)
+	}
+
+	if len(parsed.modules) != 1 {
+		t.Fatalf("modules len = %d, want 1", len(parsed.modules))
+	}
+	m := parsed.modules[0]
+	if m.TargetDir != "vendor" {
+		t.Errorf("TargetDir = %q, want vendor", m.TargetDir)
+	}
+	if m.InstallAs != "puppetlabs-stdlib" {
+		t.Errorf("InstallAs = %q, want puppetlabs-stdlib", m.InstallAs)
+	}
+}
+
+func TestReadModuleFileNotFound(t *testing.T) {
+	d := New(t.TempDir(), nil, 4, testLogger())
+	_, err := d.readModuleFile("/nonexistent/modules.yaml")
+	if err == nil {
+		t.Fatal("expected error for missing file")
+	}
+}
+
 func TestListExistingEnvironmentsEmpty(t *testing.T) {
 	d := New("/nonexistent/path", nil, 4, testLogger())
 	envs, err := d.listExistingEnvironments()
