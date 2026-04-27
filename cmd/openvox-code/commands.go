@@ -10,6 +10,7 @@ import (
 	"github.com/slauger/openvox-code/internal/builder"
 	"github.com/slauger/openvox-code/internal/cache"
 	"github.com/slauger/openvox-code/internal/config"
+	"github.com/slauger/openvox-code/internal/convert"
 	"github.com/slauger/openvox-code/internal/deployer"
 	"github.com/slauger/openvox-code/internal/fetcher"
 	"github.com/slauger/openvox-code/internal/lock"
@@ -507,6 +508,44 @@ func filterEnvironments(envs []resolver.ResolvedEnvironment, names []string) []r
 		}
 	}
 	return filtered
+}
+
+var convertCmd = &cobra.Command{
+	Use:   "convert <Puppetfile>",
+	Short: "Convert a Puppetfile to openvox-code modules.yaml",
+	Long: `Convert an r10k/g10k Puppetfile to openvox-code ModuleFile format.
+
+Examples:
+  openvox-code convert Puppetfile
+  openvox-code convert Puppetfile > modules.yaml
+  cat Puppetfile | openvox-code convert -`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(_ *cobra.Command, args []string) error {
+		var reader *os.File
+		if args[0] == "-" {
+			reader = os.Stdin
+		} else {
+			var err error
+			reader, err = os.Open(args[0])
+			if err != nil {
+				return fmt.Errorf("opening %s: %w", args[0], err)
+			}
+			defer func() { _ = reader.Close() }()
+		}
+
+		modules, err := convert.ParsePuppetfile(reader)
+		if err != nil {
+			return err
+		}
+
+		data, err := convert.ToModuleFileYAML(modules)
+		if err != nil {
+			return err
+		}
+
+		fmt.Print(string(data))
+		return nil
+	},
 }
 
 func init() {

@@ -68,6 +68,7 @@ func init() {
 	rootCmd.AddCommand(buildCmd)
 	rootCmd.AddCommand(pushCmd)
 	rootCmd.AddCommand(lockCmd)
+	rootCmd.AddCommand(convertCmd)
 }
 
 // Exit codes for openvox-code.
