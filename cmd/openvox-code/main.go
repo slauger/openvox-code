@@ -46,6 +46,7 @@ var (
 	verbose        bool
 	quiet          bool
 	parallel       int
+	outputFormat   string
 )
 
 func init() {
@@ -55,6 +56,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&lockfilePath, "lockfile", "", "path to lockfile")
 	rootCmd.PersistentFlags().BoolVar(&verbose, "verbose", false, "enable verbose output")
 	rootCmd.PersistentFlags().BoolVar(&quiet, "quiet", false, "suppress non-error output")
+	rootCmd.PersistentFlags().StringVarP(&outputFormat, "output", "o", "text", "output format (text, json)")
 	rootCmd.PersistentFlags().IntVar(&parallel, "parallel", runtime.NumCPU(), "max parallel Git operations")
 
 	rootCmd.AddCommand(versionCmd)
@@ -68,9 +70,20 @@ func init() {
 	rootCmd.AddCommand(lockCmd)
 }
 
+// Exit codes for openvox-code.
+const (
+	ExitOK            = 0
+	ExitGenericError  = 1
+	ExitConfigError   = 2
+	ExitGitError      = 3
+	ExitDeployError   = 4
+	ExitBuildError    = 5
+	ExitValidateError = 6
+)
+
 func main() {
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		os.Exit(ExitGenericError)
 	}
 }

@@ -25,7 +25,11 @@ func setupLogger() *slog.Logger {
 	if quiet {
 		level = slog.LevelError
 	}
-	return slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
+	opts := &slog.HandlerOptions{Level: level}
+	if outputFormat == "json" {
+		return slog.New(slog.NewJSONHandler(os.Stderr, opts))
+	}
+	return slog.New(slog.NewTextHandler(os.Stderr, opts))
 }
 
 func resolveFromLockfile(path string) ([]resolver.ResolvedEnvironment, error) {
