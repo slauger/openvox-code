@@ -149,8 +149,10 @@ openvox-code mirror     Only fetch/cache repos, no deploy
 openvox-code deploy     Deploy from cache (no network)
 openvox-code diff       Show what would change
 openvox-code validate   Validate config and check all refs reachable
-openvox-code build      Build OCI image with environments
+openvox-code build      Build OCI image (-t registry:tag)
+openvox-code push       Push OCI image to registry
 openvox-code lock       Generate/update lockfile
+openvox-code convert    Convert r10k Puppetfile to modules.yaml
 ```
 
 ## CI/CD Usage
@@ -160,10 +162,17 @@ openvox-code lock       Generate/update lockfile
 openvox-code sync --config openvox-code.yaml
 
 # Build and push OCI image
-openvox-code build --config openvox-code.yaml \
-  --registry ghcr.io/example/puppet-envs \
-  --tag v1.0.0 --push
+openvox-code build -t ghcr.io/example/puppet-envs:v1.0.0 --push
 ```
+
+## Migrating from r10k/g10k
+
+```bash
+# Convert your Puppetfile
+openvox-code convert Puppetfile > modules.yaml
+```
+
+See the full [Migration Guide](https://slauger.github.io/openvox-code/migration-guide/) for step-by-step instructions.
 
 ## Documentation
 
