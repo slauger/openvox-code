@@ -111,3 +111,26 @@ func TestResolveGitURLWithMirrorMap(t *testing.T) {
 		})
 	}
 }
+
+func TestSanitizeURL(t *testing.T) {
+	tests := []struct {
+		name string
+		url  string
+		want string
+	}{
+		{name: "no credentials", url: "https://github.com/org/repo.git", want: "https://github.com/org/repo.git"},
+		{name: "token in URL", url: "https://ghp_abc123@github.com/org/repo.git", want: "https://***@github.com/org/repo.git"},
+		{name: "user and auth", url: "https://user:" + "x-token" + "@gitlab.com/org/repo.git", want: "https://***@gitlab.com/org/repo.git"},
+		{name: "SSH URL unchanged", url: "git@github.com:org/repo.git", want: "git@github.com:org/repo.git"},
+		{name: "empty", url: "", want: ""},
+		{name: "plain path", url: "/local/repo.git", want: "/local/repo.git"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := SanitizeURL(tt.url)
+			if got != tt.want {
+				t.Errorf("SanitizeURL(%q) = %q, want %q", tt.url, got, tt.want)
+			}
+		})
+	}
+}

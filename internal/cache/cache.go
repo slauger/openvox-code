@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/slauger/openvox-code/internal/config"
 )
 
 // allowedGitSubcommands is the set of git subcommands that the cache manager
@@ -147,13 +149,13 @@ func (m *Manager) EnsureClone(ctx context.Context, gitURL string) error {
 	repoPath := m.RepoPath(gitURL)
 
 	if _, err := os.Stat(filepath.Join(repoPath, "HEAD")); err == nil {
-		m.log.Debug("updating bare clone", "url", gitURL, "path", repoPath)
+		m.log.Debug("updating bare clone", "url", config.SanitizeURL(gitURL), "path", repoPath)
 		return m.retryNetworkOp(ctx, "fetch", gitURL, func() error {
 			return m.fetch(ctx, gitURL, repoPath)
 		})
 	}
 
-	m.log.Debug("creating bare clone", "url", gitURL, "path", repoPath)
+	m.log.Debug("creating bare clone", "url", config.SanitizeURL(gitURL), "path", repoPath)
 	return m.retryNetworkOp(ctx, "clone", gitURL, func() error {
 		return m.clone(ctx, gitURL, repoPath)
 	})
@@ -171,7 +173,7 @@ func (m *Manager) retryNetworkOp(ctx context.Context, op, gitURL string, fn func
 		if attempt < MaxRetries-1 {
 			backoff := time.Duration(1<<uint(attempt)) * time.Second // 1s, 2s, 4s
 			m.log.Warn("git operation failed, retrying",
-				"op", op, "url", gitURL,
+				"op", op, "url", config.SanitizeURL(gitURL),
 				"attempt", attempt+1, "max", MaxRetries,
 				"backoff", backoff, "error", lastErr)
 
@@ -201,7 +203,7 @@ func (m *Manager) ResolveRef(ctx context.Context, gitURL, ref string) (string, e
 		if err != nil {
 			out, err = m.git(ctx, "-C", repoPath, "rev-parse", "--verify", "refs/tags/"+ref)
 			if err != nil {
-				return "", fmt.Errorf("resolving ref %q in %s: %w", ref, gitURL, err)
+				return "", fmt.Errorf("resolving ref %q in %s: %w", ref, config.SanitizeURL(gitURL), err)
 			}
 		}
 	}
@@ -213,7 +215,7 @@ func (m *Manager) ListBranches(ctx context.Context, gitURL string) ([]string, er
 	repoPath := m.RepoPath(gitURL)
 	out, err := m.git(ctx, "-C", repoPath, "for-each-ref", "--format=%(refname:short)", "refs/heads/")
 	if err != nil {
-		return nil, fmt.Errorf("listing branches for %s: %w", gitURL, err)
+		return nil, fmt.Errorf("listing branches for %s: %w", config.SanitizeURL(gitURL), err)
 	}
 
 	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
@@ -256,7 +258,7 @@ func (m *Manager) Checkout(ctx context.Context, gitURL, sha, targetDir string) e
 		return fmt.Errorf("starting tar: %w", err)
 	}
 	if err := archiveCmd.Wait(); err != nil {
-		return fmt.Errorf("git archive for %s@%s: %w", gitURL, sha, err)
+		return fmt.Errorf("git archive for %s@%s: %w", config.SanitizeURL(gitURL), sha, err)
 	}
 	if err := tarCmd.Wait(); err != nil {
 		return fmt.Errorf("tar extract: %w", err)
@@ -271,7 +273,7 @@ func (m *Manager) clone(ctx context.Context, gitURL, repoPath string) error {
 	}
 
 	if err := m.gitWithAuth(ctx, gitURL, "clone", "--bare", "--mirror", gitURL, repoPath); err != nil {
-		return fmt.Errorf("cloning %s: %w", gitURL, err)
+		return fmt.Errorf("cloning %s: %w", config.SanitizeURL(gitURL), err)
 	}
 	return nil
 }

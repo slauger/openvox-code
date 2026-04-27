@@ -52,6 +52,20 @@ func hostMatches(gitURL, host string) bool {
 	return parsed.Hostname() == host
 }
 
+// SanitizeURL removes credentials from a Git URL for safe logging.
+// "https://token@github.com/org/repo.git" → "https://***@github.com/org/repo.git"
+func SanitizeURL(gitURL string) string {
+	parsed, err := url.Parse(gitURL)
+	if err != nil || parsed.User == nil {
+		return gitURL
+	}
+	// Rebuild without credentials to avoid URL-encoding of the placeholder
+	parsed.User = nil
+	clean := parsed.String()
+	// Insert redacted marker before the host
+	return strings.Replace(clean, "://"+parsed.Host, "://***@"+parsed.Host, 1)
+}
+
 // isSSHURL detects SSH-style Git URLs like git@github.com:owner/repo.git
 func isSSHURL(u string) bool {
 	// SSH URLs have @ before the host and : before the path, but no ://
