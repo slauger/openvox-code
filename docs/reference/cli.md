@@ -16,7 +16,7 @@
 
 ### `openvox-code sync`
 
-Fetch and deploy all environments. This is the most common command — it runs the mirror phase followed by the deploy phase.
+Fetch and deploy all environments. This is the most common command -- it runs the mirror phase followed by the deploy phase.
 
 ```bash
 openvox-code sync --config openvox-code.yaml
@@ -26,8 +26,21 @@ Equivalent to running `mirror` followed by `deploy`.
 
 | Flag | Description |
 |---|---|
-| `--lockfile` | Use a lockfile for pinned SHAs |
 | `--clean` | Remove environments not in config |
+| `--environment` | Only sync specific environments (can be repeated) |
+
+Examples:
+
+```bash
+# Sync all environments
+openvox-code sync
+
+# Sync only production and staging
+openvox-code sync --environment production --environment staging
+
+# Sync with cleanup of stale environments
+openvox-code sync --clean
+```
 
 ### `openvox-code mirror`
 
@@ -53,6 +66,20 @@ Fails if required refs are not present in the cache. Run `mirror` first or use a
 |---|---|
 | `--lockfile` | Use a lockfile for pinned SHAs |
 | `--clean` | Remove environments not in config |
+| `--environment` | Only deploy specific environments (can be repeated) |
+
+Examples:
+
+```bash
+# Deploy from cache
+openvox-code deploy
+
+# Deploy using a lockfile
+openvox-code deploy --lockfile openvox-code.lock
+
+# Deploy only production
+openvox-code deploy --environment production
+```
 
 ### `openvox-code diff`
 
@@ -89,17 +116,51 @@ Checks:
 
 ### `openvox-code build`
 
-Build an OCI container image containing the deployed environments.
+Build an OCI container image containing the deployed environments. The image reference is specified using the `-t` flag (podman/docker style) or read from the `oci` section in the configuration file.
 
 ```bash
-openvox-code build --config openvox-code.yaml --tag v1.0.0
+openvox-code build -t ghcr.io/example/puppet-envs:v1.0.0
 ```
 
 | Flag | Description |
 |---|---|
-| `--tag` | Image tag |
-| `--registry` | Override OCI registry URL |
-| `--push` | Push image after building |
+| `-t`, `--tag` | Image reference (`registry/image:tag`) |
+| `--push` | Push image to registry after building |
+
+When no `-t` flag is provided, the registry and tag are read from the `oci.registry` and `oci.tag` fields in the configuration file.
+
+If `--push` is not specified, the image is saved locally as `openvox-code.tar`.
+
+Examples:
+
+```bash
+# Build and save locally
+openvox-code build -t ghcr.io/example/puppet-envs:v1.0.0
+
+# Build and push in one step
+openvox-code build -t ghcr.io/example/puppet-envs:v1.0.0 --push
+
+# Build using registry from config
+openvox-code build
+```
+
+### `openvox-code push`
+
+Push a previously built OCI image to a container registry. The image reference can be passed as a positional argument or read from the configuration file.
+
+```bash
+openvox-code push ghcr.io/example/puppet-envs:v1.0.0
+```
+
+Examples:
+
+```bash
+# Push with explicit reference
+openvox-code push ghcr.io/example/puppet-envs:v1.0.0
+
+# Push using registry from config
+openvox-code push
+```
 
 ### `openvox-code lock`
 
@@ -114,3 +175,11 @@ Writes `openvox-code.lock` (or the path specified by `--lockfile`). The lockfile
 | Flag | Description |
 |---|---|
 | `--lockfile` | Output path for lockfile |
+
+### `openvox-code version`
+
+Print version information including the build commit, date, Go version, and OS/architecture.
+
+```bash
+openvox-code version
+```

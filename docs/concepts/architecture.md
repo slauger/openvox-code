@@ -1,32 +1,44 @@
 # Architecture
 
-openvox-code is built around four core components that work together in a two-phase workflow.
+openvox-code is built around five core components that work together in a two-phase workflow.
 
 ## Core Components
-
-### Fetcher
-
-The Fetcher is responsible for cloning and updating Git repositories. It operates in parallel, fetching multiple repositories concurrently to minimize wall-clock time.
-
-- Creates and maintains bare clone caches
-- Supports SSH and HTTPS Git transports
-- Handles branch discovery for dynamic environments
-- Can be run independently via `openvox-code mirror`
 
 ### Resolver
 
 The Resolver reads the configuration file and determines which modules, at which versions, need to be placed into which environments. It handles:
 
-- Parsing `openvox-code.yaml` and optional lockfiles
+- Parsing `openvox-code.yaml` (with Kubernetes-style envelope support) and optional lockfiles
 - Resolving branch names and tags to concrete Git SHAs
-- Computing the full dependency graph for each environment
+- Computing the full module list for each environment from module sets, inline modules, and per-branch module files
 - Detecting conflicts (e.g., duplicate module names from different sources)
+- Expanding branch discovery after fetching: listing branches from the cache, filtering through `branchSelector` patterns, and reading per-branch module files from the control repo
+
+### Cache Manager
+
+The Cache Manager maintains a directory of bare Git clones, providing a shared cache that avoids redundant network transfers. It handles:
+
+- Creating and updating bare mirror clones for each unique Git URL
+- Per-host credential resolution: selecting the right SSH key or credential helper based on the Git URL's host
+- Retry with exponential backoff for transient network failures (up to 3 attempts with 1s, 2s, 4s backoff)
+- Resolving refs (branches, tags, SHAs) to concrete commit SHAs within cached repositories
+- Listing branches in cached repositories for branch discovery
+- Checking out files from cached repos into target directories using `git archive`
+
+### Fetcher
+
+The Fetcher orchestrates parallel Git fetch operations using the Cache Manager. It:
+
+- Collects all unique Git URLs from the resolved environments
+- Fetches repositories concurrently using a semaphore to limit parallelism
+- Delegates actual clone/fetch operations to the Cache Manager
 
 ### Deployer
 
-The Deployer takes the resolved dependency graph and materializes it on disk. It:
+The Deployer takes the resolved environment list and materializes it on disk. It:
 
-- Checks out modules from the bare clone cache into environment directories
+- Checks out the control repo and modules from the bare clone cache into environment directories
+- Reads per-branch module files from the checked-out control repo to discover additional modules
 - Performs atomic deploys using temporary directories and renames
 - Cleans up stale environments that no longer exist in the config or branches
 - Can be run independently via `openvox-code deploy` (offline, from cache)
@@ -37,7 +49,8 @@ The Builder packages deployed environments into OCI container images for use wit
 
 - Produces standard OCI images with Puppet code as the filesystem layer
 - Supports tagging and pushing to container registries
-- Run via `openvox-code build`
+- Supports multi-architecture image builds
+- Run via `openvox-code build` and `openvox-code push`
 
 ## Two-Phase Workflow
 
@@ -53,7 +66,12 @@ openvox-code mirror --config openvox-code.yaml
 
 ### Phase 2: Deploy
 
-Read from the local cache and write environments to disk. No network access required.
+Read from the local cache and write environments to disk. No network access required. This phase includes:
+
+1. Checking out the control repo for each environment
+2. Reading per-branch module files from the control repo checkout
+3. Resolving `follow_branch` modules to the environment's branch (with fallback)
+4. Checking out all modules into the environment directory
 
 ```bash
 openvox-code deploy --config openvox-code.yaml
@@ -73,19 +91,21 @@ openvox-code sync --config openvox-code.yaml
 graph LR
     A[openvox-code.yaml] --> B[Resolver]
     B --> C[Fetcher]
-    C -->|parallel git fetch| D[Bare Clone Cache]
-    D --> E[Deployer]
-    E -->|atomic write| F[Environment Directories]
-    F --> G[Builder]
-    G --> H[OCI Image]
+    C -->|parallel git fetch| D[Cache Manager]
+    D -->|bare clones| E[Deployer]
+    E -->|control repo checkout| F[Per-Branch Module Files]
+    F --> E
+    E -->|atomic write| G[Environment Directories]
+    G --> H[Builder]
+    H --> I[OCI Image]
 
     style A fill:#ff9800,color:#000
     style D fill:#ff9800,color:#000
-    style F fill:#ff9800,color:#000
-    style H fill:#ff9800,color:#000
+    style G fill:#ff9800,color:#000
+    style I fill:#ff9800,color:#000
 ```
 
-The dashed path from Environment Directories to Builder is optional — OCI image output is only used when deploying to Kubernetes via openvox-operator.
+The path from Environment Directories to Builder is optional -- OCI image output is only used when deploying to Kubernetes via openvox-operator.
 
 ## Directory Layout
 
@@ -99,6 +119,9 @@ After a successful sync, the on-disk layout looks like:
 │   │   ├── stdlib/
 │   │   ├── apache/
 │   │   └── ...
+│   ├── site/                    # custom target_dir modules
+│   │   ├── role/
+│   │   └── profile/
 │   └── environment.conf
 ├── staging/
 │   ├── manifests/
