@@ -41,4 +41,5 @@ nav:
   - Reference:
     - CLI: reference/cli.md
     - Configuration: reference/configuration.md
+  - Migration Guide: migration-guide.md
   - Roadmap: roadmap.md
