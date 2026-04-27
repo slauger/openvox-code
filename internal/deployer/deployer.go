@@ -67,23 +67,54 @@ func New(envDir string, cm *cache.Manager, parallel int, log *slog.Logger) *Depl
 }
 
 // DeployAll deploys all resolved environments to disk using atomic operations.
+// Environments are deployed in parallel, limited by the parallel setting.
 func (d *Deployer) DeployAll(ctx context.Context, envs []resolver.ResolvedEnvironment, clean bool) error {
 	if err := os.MkdirAll(d.envDir, 0o750); err != nil {
 		return fmt.Errorf("creating environment directory: %w", err)
 	}
 
-	deployed := make(map[string]bool)
-
+	// Filter out discovery placeholders
+	var toDeploy []int
 	for i := range envs {
-		if envs[i].Name == "__source_discovery__" {
-			continue
+		if envs[i].Name != "__source_discovery__" {
+			toDeploy = append(toDeploy, i)
 		}
+	}
 
-		d.log.Info("deploying environment", "name", envs[i].Name)
-		if err := d.deployEnvironment(ctx, &envs[i]); err != nil {
-			return fmt.Errorf("deploying %q: %w", envs[i].Name, err)
-		}
-		deployed[envs[i].Name] = true
+	d.log.Info("deploying environments", "count", len(toDeploy), "parallel", d.parallel)
+
+	var (
+		mu       sync.Mutex
+		deployed = make(map[string]bool)
+		wg       sync.WaitGroup
+		errChan  = make(chan error, len(toDeploy))
+		sem      = make(chan struct{}, d.parallel)
+	)
+
+	for _, idx := range toDeploy {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			d.log.Info("deploying environment", "name", envs[i].Name)
+			if err := d.deployEnvironment(ctx, &envs[i]); err != nil {
+				errChan <- fmt.Errorf("deploying %q: %w", envs[i].Name, err)
+				return
+			}
+
+			mu.Lock()
+			deployed[envs[i].Name] = true
+			mu.Unlock()
+		}(idx)
+	}
+
+	wg.Wait()
+	close(errChan)
+
+	for err := range errChan {
+		return err
 	}
 
 	if clean {
