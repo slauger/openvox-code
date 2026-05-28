@@ -39,7 +39,7 @@ test-short: ## Run short tests only
 
 .PHONY: build
 build: fmt vet ## Build the binary
-	go build -ldflags "-X main.version=$(IMAGE_TAG) -X main.commit=$(shell git rev-parse --short HEAD 2>/dev/null || echo unknown) -X main.date=$(shell date -u +%Y-%m-%dT%H:%M:%SZ)" -o bin/$(BINARY_NAME) ./cmd/openvox-code
+	go build -trimpath -ldflags "-X main.version=$(IMAGE_TAG) -X main.commit=$(shell git rev-parse --short HEAD 2>/dev/null || echo unknown) -X main.date=$(shell date -u +%Y-%m-%dT%H:%M:%SZ)" -o bin/$(BINARY_NAME) ./cmd/openvox-code
 
 .PHONY: install
 install: build ## Install binary to GOPATH/bin

@@ -128,7 +128,7 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: "0"
-        run: go build -ldflags="-s -w" -o bin/openvox-code-${{ matrix.goos }}-${{ matrix.goarch }} ./cmd/openvox-code
+        run: go build -trimpath -ldflags="-s -w" -o bin/openvox-code-${{ matrix.goos }}-${{ matrix.goarch }} ./cmd/openvox-code
 
       - name: Upload binary
         uses: actions/upload-artifact@v5
