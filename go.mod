@@ -2,6 +2,8 @@ module github.com/slauger/openvox-code
 
 go 1.26.2
 
+toolchain go1.26.3
+
 require (
 	github.com/google/go-containerregistry v0.21.5
 	github.com/spf13/cobra v1.10.2

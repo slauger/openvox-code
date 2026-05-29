@@ -5,6 +5,7 @@ linters:
     - bodyclose
     - copyloopvar
     - errcheck
+    - errorlint
     - gocritic
     - gosec
     - govet

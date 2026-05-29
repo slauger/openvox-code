@@ -69,7 +69,7 @@ func (f *Fetcher) FetchAll(ctx context.Context, envs []resolver.ResolvedEnvironm
 	}
 
 	if len(errs) > 0 {
-		return fmt.Errorf("fetch errors (%d): %v", len(errs), errs[0])
+		return fmt.Errorf("fetch errors (%d): %w", len(errs), errs[0])
 	}
 	return nil
 }
