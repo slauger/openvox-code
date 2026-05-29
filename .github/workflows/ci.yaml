@@ -25,12 +25,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Reject Unicode smart quotes
-        run: |
-          if LC_ALL=C grep -rn $'\xe2\x80\x9c\|\xe2\x80\x9d\|\xe2\x80\x98\|\xe2\x80\x99' --include='*.go' --include='*.yaml' --include='*.yml' .; then
-            echo "::error::Found Unicode smart quotes. Replace with ASCII quotes."
-            exit 1
-          fi
+      - name: Reject suspicious Unicode
+        run: ./hack/unicode-lint.sh
 
   lint:
     runs-on: ubuntu-latest
