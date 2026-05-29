@@ -1,0 +1,14 @@
+name: Unicode Lint
+
+on:
+  workflow_call:
+
+jobs:
+  unicode:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Reject suspicious Unicode
+        run: ./hack/unicode-lint.sh
