@@ -290,7 +290,8 @@ func (c *Config) processIncludes(baseDir string) error {
 		sort.Strings(matches)
 
 		for _, match := range matches {
-			data, err := os.ReadFile(filepath.Clean(match))
+			// Include paths are taken from the configuration file itself, which is trusted input.
+			data, err := os.ReadFile(filepath.Clean(match)) //nolint:gosec // G703: reading configured includes is intended
 			if err != nil {
 				return fmt.Errorf("reading include %q: %w", match, err)
 			}
