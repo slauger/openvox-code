@@ -40,14 +40,13 @@ archives:
 checksum:
   name_template: checksums.txt
 
+# The GitHub release and its notes are created by semantic-release,
+# GoReleaser only attaches the build artifacts and pushes the image.
+release:
+  mode: keep-existing
+
 changelog:
-  sort: asc
-  filters:
-    exclude:
-      - "^docs:"
-      - "^test:"
-      - "^ci:"
-      - "^chore:"
+  disable: true
 
 dockers_v2:
   - images:
