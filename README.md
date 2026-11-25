@@ -2,6 +2,8 @@
 
 [![CI](https://github.com/slauger/openvox-code/actions/workflows/ci.yaml/badge.svg)](https://github.com/slauger/openvox-code/actions/workflows/ci.yaml)
 [![Go Report Card](https://goreportcard.com/badge/github.com/slauger/openvox-code)](https://goreportcard.com/report/github.com/slauger/openvox-code)
+[![Go Version](https://img.shields.io/github/go-mod-go-version/slauger/openvox-code)](go.mod)
+[![License](https://img.shields.io/github/license/slauger/openvox-code)](LICENSE)
 
 Fast, Git-native Puppet environment deployment tool written in Go.
 
@@ -24,11 +26,23 @@ Traditional tools like r10k and g10k run **on each Puppet server**, pulling code
 
 openvox-code takes a different approach: it runs **once in CI/CD**, builds an immutable OCI image containing all Puppet environments, and pushes it to a container registry. Puppet servers pull the finished image — no Git access required on target nodes, guaranteed consistency, and the Git server is only hit once per build.
 
+## Architecture
+
+```mermaid
+flowchart LR
+    git[(Git repositories)] -->|mirror| cache[Bare clone cache]
+    cache -->|deploy| envs[Puppet environments]
+    envs -->|build / push| registry[(OCI registry)]
+    registry --> servers[Puppet servers / openvox-operator]
+```
+
+`mirror` fetches all control and module repositories into a local bare clone cache, `deploy` checks out the environments from the cache without network access (`sync` does both), and `build`/`push` package the environments as an OCI image.
+
 ## Install
 
 ### Binary
 
-Download the latest release from [GitHub Releases](https://github.com/slauger/openvox-code/releases).
+Download the latest release from [GitHub Releases](https://github.com/slauger/openvox-code/releases) (archives for Linux, macOS and Windows plus `checksums.txt`).
 
 ### Go
 
@@ -41,6 +55,8 @@ go install github.com/slauger/openvox-code/cmd/openvox-code@latest
 ```bash
 docker pull ghcr.io/slauger/openvox-code:latest
 ```
+
+Binaries and images are published by the release workflow. Until the first release, build from source with `go install` or `make build`.
 
 ## Quick Start
 
@@ -153,6 +169,7 @@ openvox-code build      Build OCI image (-t registry:tag)
 openvox-code push       Push OCI image to registry
 openvox-code lock       Generate/update lockfile
 openvox-code convert    Convert r10k Puppetfile to modules.yaml
+openvox-code version    Print version information
 ```
 
 ## CI/CD Usage
@@ -185,7 +202,12 @@ Full documentation is available at [slauger.github.io/openvox-code](https://slau
 - [CLI Reference](https://slauger.github.io/openvox-code/reference/cli/)
 - [Roadmap](https://slauger.github.io/openvox-code/roadmap/)
 
-## Contributing
+## Development
+
+```bash
+make build       # build bin/openvox-code
+make ci          # lint, vet, test and govulncheck (go tool govulncheck)
+```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and guidelines.
 
