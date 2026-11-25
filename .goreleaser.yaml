@@ -9,6 +9,8 @@ before:
 builds:
   - main: ./cmd/openvox-code
     binary: openvox-code
+    flags:
+      - -trimpath
     env:
       - CGO_ENABLED=0
     ldflags:
@@ -28,12 +30,12 @@ builds:
         goarch: arm64
 
 archives:
-  - format: tar.gz
+  - formats: [tar.gz]
     name_template: >-
       {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
     format_overrides:
       - goos: windows
-        format: zip
+        formats: [zip]
 
 checksum:
   name_template: checksums.txt
@@ -47,35 +49,18 @@ changelog:
       - "^ci:"
       - "^chore:"
 
-dockers:
-  - image_templates:
-      - "ghcr.io/slauger/openvox-code:{{ .Version }}-amd64"
-    use: buildx
-    build_flag_templates:
-      - "--platform=linux/amd64"
-      - "--label=org.opencontainers.image.title={{ .ProjectName }}"
-      - "--label=org.opencontainers.image.version={{ .Version }}"
-      - "--label=org.opencontainers.image.source={{ .GitURL }}"
+dockers_v2:
+  - images:
+      - ghcr.io/slauger/openvox-code
+    tags:
+      - "{{ .Version }}"
+      - latest
     dockerfile: Containerfile.goreleaser
-    goarch: amd64
-
-  - image_templates:
-      - "ghcr.io/slauger/openvox-code:{{ .Version }}-arm64"
-    use: buildx
-    build_flag_templates:
-      - "--platform=linux/arm64"
-      - "--label=org.opencontainers.image.title={{ .ProjectName }}"
-      - "--label=org.opencontainers.image.version={{ .Version }}"
-      - "--label=org.opencontainers.image.source={{ .GitURL }}"
-    dockerfile: Containerfile.goreleaser
-    goarch: arm64
-
-docker_manifests:
-  - name_template: "ghcr.io/slauger/openvox-code:{{ .Version }}"
-    image_templates:
-      - "ghcr.io/slauger/openvox-code:{{ .Version }}-amd64"
-      - "ghcr.io/slauger/openvox-code:{{ .Version }}-arm64"
-  - name_template: "ghcr.io/slauger/openvox-code:latest"
-    image_templates:
-      - "ghcr.io/slauger/openvox-code:{{ .Version }}-amd64"
-      - "ghcr.io/slauger/openvox-code:{{ .Version }}-arm64"
+    platforms:
+      - linux/amd64
+      - linux/arm64
+    labels:
+      org.opencontainers.image.title: "{{ .ProjectName }}"
+      org.opencontainers.image.version: "{{ .Version }}"
+      org.opencontainers.image.revision: "{{ .FullCommit }}"
+      org.opencontainers.image.source: "{{ .GitURL }}"
