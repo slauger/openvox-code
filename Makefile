@@ -24,7 +24,7 @@ lint: ## Run golangci-lint
 
 .PHONY: vulncheck
 vulncheck: ## Run govulncheck
-	govulncheck ./...
+	go tool govulncheck ./...
 
 .PHONY: test
 test: ## Run tests with coverage
