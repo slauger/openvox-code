@@ -1,4 +1,4 @@
-FROM golang:1.26.2 AS builder
+FROM golang:1.27.4 AS builder
 
 ARG TARGETARCH
 
@@ -10,7 +10,7 @@ RUN go mod download
 COPY cmd/ cmd/
 COPY internal/ internal/
 
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build \
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build -trimpath \
     -ldflags="-s -w" \
     -o openvox-code \
     ./cmd/openvox-code
