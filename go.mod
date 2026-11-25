@@ -2,7 +2,7 @@ module github.com/slauger/openvox-code
 
 go 1.26.2
 
-toolchain go1.26.3
+toolchain go1.27.4
 
 require (
 	github.com/google/go-containerregistry v0.22.1
